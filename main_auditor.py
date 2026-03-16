@@ -7,14 +7,11 @@ import re
 import datetime
 import subprocess
 import socket
-import google.generativeai as genai
 import requests
 import json
 import time
 from colorama import Fore, Style, init
 init(autoreset=True)
-
-# Terminal Color Palette (Professional Hacker Theme)
 B = Style.BRIGHT
 C = Fore.CYAN + Style.BRIGHT
 G = Fore.GREEN + Style.BRIGHT
@@ -43,15 +40,14 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from fpdf import FPDF
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
 except ImportError:
-    try:
-        from fpdf2 import FPDF
-    except ImportError:
-        # Define a mock FPDF class to prevent inheritance errors
-        class FPDF:
-            def __getattr__(self, name):
-                return lambda *args, **kwargs: None
+    print("[-] Error: ReportLab not found. Run 'pip install reportlab'")
+    sys.exit(1)
 
 from google_play_scraper import app
 from dotenv import load_dotenv
@@ -133,13 +129,12 @@ def get_adb_packages():
                 device_found = True
         
         if not device_found:
-            print(f"\n{B}{R}[!] ERROR: NO DEVICE CONNECTED VIA USB.{W}")
-            print(f"{Y} [R] Retry ADB Scan{W}")
-            print(f"{Y} [E] Exit to Main Menu{W}")
+            print(f"\n{B}{R}[!] ERROR: NO DEVICE DETECTED.{W}")
+            print(f"{Y} [R] Retry | [B] Back to Menu{W}")
             sub_choice = input(f"\n{Y}[?] Choice: {W}").strip().upper()
             if sub_choice == 'R':
                 continue
-            return "EXIT"
+            return "BACK"
         
         print(f"{C}[*] Fetching 3rd-party packages...{W}")
         pkgs = run_adb("shell pm list packages -3")
@@ -170,81 +165,135 @@ def pull_apk_from_adb(package_name):
     return None
 
 def diagnostic_connection_test():
-    """Diagnostic check for Gemini API status and Key validity."""
+    """Diagnostic check for Gemini API status and Key validity via REST API."""
     if not GEMINI_API_KEY:
-        print("\n[!] CRITICAL: Missing GEMINI_API_KEY in .env file.")
+        print(f"\n{B}{R}[!] CRITICAL: Missing GEMINI_API_KEY in .env file.{W}")
         return False
 
-    print("[*] Performing Diagnostic Connection Test...")
+    print(f"{C}[*] Performing Diagnostic Connection Test...{W}")
     
-    # 1. Check Google reachability
     if not is_google_reachable():
-        print("[!] Diagnostic: 8.8.8.8 Unreachable. Check your network/proxy.")
+        print(f"{R}[!] Diagnostic: 8.8.8.8 Unreachable. Check your network/proxy.{W}")
         return "NETWORK_ERROR"
 
-    print(f"{C}[*] Connecting to Stable Gemini Engine....{W}")
+    print(f"{C}[*] Synchronizing with Gemini 1.5 Flash... {W}", end="", flush=True)
     
-    # 2. Check API Key validity via small request
     try:
-        # Force v1 Stable endpoint via specified initialization
-        try:
-            genai.configure(api_key=GEMINI_API_KEY, transport='rest', api_version='v1')
-        except TypeError:
-            genai.configure(api_key=GEMINI_API_KEY, transport='rest')
-            
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        for version in ['v1beta', 'v1']:
+            url = f"https://generativelanguage.googleapis.com/{version}/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            payload = {"contents": [{"parts": [{"text": "ping"}]}]}
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                print(f"{G}[Connected]{W}")
+                print(f"{G}[+] Diagnostic: Gemini API is LIVE and Key is VALID.{W}")
+                return True
         
-        # Test request
-        response = model.generate_content("ping", request_options={'timeout': 10})
-
-        if response:
-            print(f"{G}[+] Diagnostic: Gemini API is LIVE and Key is VALID.{W}")
-            return True
+        print(f"{R}[Failed]{W}")
+        return "AI_OFFLINE"
     except Exception as e:
-        err_msg = str(e).upper()
-        if "404" in err_msg:
-             print(f"{C}[*] Switching to Local Heuristic Engine (Offline Audit Mode){W}")
-             # Test fallback anyway for diagnostics
-             try:
-                 url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-                 resp = requests.post(url, json={"contents": [{"parts": [{"text": "ping"}]}]}, timeout=10)
-                 if resp.status_code == 200:
-                     print(f"{G}[+] Diagnostic: Stable V1 Reachable via REST Fallback.{W}")
-                     return True
-             except: pass
-             return "AI_OFFLINE"
-             
-        if "API_KEY_INVALID" in err_msg or "INVALID_ARGUMENT" in err_msg:
-            print("\n" + "!"*60)
-            print("  CRITICAL: Update your API Key in the .env file.")
-            print("  The current key is either EXPIRED or INVALID.")
-            print("!"*60 + "\n")
-            return "KEY_ERROR"
-        else:
-            print(f"[!] Diagnostic: Gemini API test failed - {e}")
-            return "AI_OFFLINE"
-    return False
+        print(f"{R}[Error]{W}")
+        print(f"{R}[!] Diagnostic: Connection failed - {e}{W}")
+        return "AI_OFFLINE"
 
-# --- PDF REPORT CLASS ---
+# --- PDF LOGIC (REPORTLAB) ---
 
-class ProfessionalReport(FPDF):
-    def header(self):
-        if not hasattr(self, 'set_fill_color'): return
-        self.set_fill_color(30, 41, 59) # Pro Midnight Slate
-        self.rect(0, 0, 210, 40, 'F')
-        self.set_text_color(255, 255, 255)
-        self.set_font("Arial", 'B', 20)
-        self.cell(0, 20, "VAPT AUDIT REPORT: ANDROID", 0, 1, 'C')
-        self.set_font("Arial", '', 10)
-        self.cell(0, -5, f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", 0, 1, 'C')
-        self.ln(25)
-
-    def footer(self):
-        if not hasattr(self, 'set_y'): return
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.set_text_color(100, 100, 100)
-        self.cell(0, 10, f'Page {self.page_no()} | Confidential MAST Audit', 0, 0, 'C')
+def generate_pdf(pkg_name, app_title, ai_response):
+    """Generates a professional VAPT report using ReportLab with Enterprise styling."""
+    filename = f"MAST_Audit_{pkg_name}.pdf"
+    abs_path = os.path.abspath(filename)
+    
+    try:
+        # Configuration for Letter pagesize and margins
+        doc = SimpleDocTemplate(abs_path, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Professional Custom Styles
+        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#1B2631"), alignment=TA_CENTER, spaceAfter=12)
+        sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=11, textColor=colors.grey, alignment=TA_CENTER, spaceAfter=24)
+        section_style = ParagraphStyle('SectionStyle', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor("#1B2631"), spaceBefore=20, spaceAfter=12)
+        normal_style = styles['Normal']
+        
+        # Header Section
+        elements.append(Paragraph("MOBILE VAPT AUDITOR: SECURITY REPORT", title_style))
+        elements.append(Paragraph(f"Enterprise Grade Binary Forensics | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", sub_style))
+        elements.append(Spacer(1, 12))
+        
+        elements.append(Paragraph(f"<b>Target Application:</b> {app_title}", normal_style))
+        elements.append(Paragraph(f"<b>Package Name:</b> {pkg_name}", normal_style))
+        elements.append(Spacer(1, 24))
+        
+        clean_report = ai_response.replace('\x00', '') # Sanitize
+        
+        # 1. Executive Summary
+        elements.append(Paragraph("1. Security Analysis Overview", section_style))
+        summary_match = re.search(r"SUMMARY_START(.*?)SUMMARY_END", clean_report, re.DOTALL | re.IGNORECASE)
+        if summary_match:
+            summary_text = summary_match.group(1).strip().replace("\n", "<br/>")
+            elements.append(Paragraph(summary_text, normal_style))
+        elements.append(Spacer(1, 24))
+        
+        # 2. Forensic Findings Table
+        elements.append(Paragraph("2. Detailed Findings & Remediation Guide", section_style))
+        
+        data = [["Component / Vulnerability", "Contextual Risk Analysis", "OWASP Cat.", "Remediation Guide"]]
+        
+        table_match = re.search(r"TABLE_START(.*?)TABLE_END", clean_report, re.DOTALL | re.IGNORECASE)
+        if table_match:
+            rows = table_match.group(1).strip().split("\n")
+            for row in rows:
+                if "|" not in row: continue
+                cols = [c.strip() for c in row.split("|")]
+                if len(cols) >= 4:
+                    data.append(cols[:4])
+        
+        # Table Alignment: Total 540 pts (Letter width 612 - 60 margin)
+        t = Table(data, colWidths=[120, 180, 80, 160])
+        
+        # Enterprise Table Styling
+        style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1B2631")), # Enterprise Dark Blue
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ])
+        
+        # Alternate Row Shading & Highlighting
+        for i in range(1, len(data)):
+            if i % 2 == 0:
+                style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor("#F2F4F4"))
+            
+            # Risk Highlighting
+            risk_text = data[i][1].upper()
+            if any(x in risk_text for x in ["UNWANTED", "SUSPICIOUS", "CRITICAL", "HIGH", "MALICIOUS"]):
+                style.add('BACKGROUND', (1, i), (1, i), colors.HexColor("#FDEDEC"))
+                style.add('TEXTCOLOR', (1, i), (1, i), colors.HexColor("#943126"))
+        
+        t.setStyle(style)
+        elements.append(t)
+        
+        # Final Footer
+        elements.append(Spacer(1, 40))
+        elements.append(Paragraph("<i>End of Forensic Security Audit. Confidential Document.</i>", sub_style))
+        
+        doc.build(elements)
+        print(f"\n{G}[+] Professional PDF generated at: {abs_path}{W}")
+        return abs_path
+        
+    except PermissionError:
+        print(f"\n{R}[!] ERROR: Permission Denied. Close the existing PDF file before scanning again!{W}")
+        return None
+    except Exception as e:
+        print(f"{R}[-] PDF Generation Failed: {e}{W}")
+        return None
 
 # --- CORE FUNCTIONS ---
 
@@ -285,94 +334,65 @@ def hunt_secrets(apk_obj):
     return found
 
 def get_ai_audit(package, permissions, description, manifest_risks, secrets, app_title):
-    """Performs deep AI analysis with dynamic model selection and REST transport."""
+    """Performs deep AI analysis using direct REST API."""
     if not GEMINI_API_KEY:
         return "ERROR: Missing GEMINI_API_KEY in .env"
 
-    try:
-        # Pre-check connectivity
-        if not is_google_reachable():
-            return "AI_ERROR: No Internet Connection."
+    if not is_google_reachable():
+        return "AI_ERROR: No Internet Connection."
 
-        # FORCE v1 Stable API Production Endpoint & Disable Beta
-        # Using specified api_version='v1'
-        try:
-            genai.configure(api_key=GEMINI_API_KEY, transport='rest', api_version='v1')
-        except TypeError:
-            genai.configure(api_key=GEMINI_API_KEY, transport='rest')
-            
-        # Use specified model name (Stable)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        print(f"[*] Initializing Production Model: gemini-1.5-flash (v1 Stable)")
-        
-    except Exception as e:
-        return f"AI_ERROR: API Configuration failed - {e}"
-    
-    secrets_str = "\n".join([f"- {s['type']}: {s['match']}" for s in secrets]) or "None"
+    print(f"{C}[*] Synchronizing with Gemini 1.5 Flash... {W}", end="", flush=True)
     
     prompt = f"""
-    ROLE: Senior Mobile Security Researcher.
-    TASK: Professional MAST Analysis for Android APK.
+    ROLE: Senior Mobile Security Auditor.
+    TASK: Perform a professional VAPT analysis of the following Android APK data.
     
-    APP CONTEXT:
+    APP DATA:
     App Name: {app_title}
     Package: {package}
-    App Description: {description[:1000]}
-    
-    SECURITY DATA:
     Permissions: {', '.join(permissions)}
-    Manifest: Backup={manifest_risks['allowBackup']}, Debug={manifest_risks['debuggable']}, Exported={manifest_risks['exported_count']}
-    Secrets Detected: {secrets_str}
+    Secrets Found: {len(secrets)}
+    
+    SECURITY CONTEXT:
+    Manifest Risks: {manifest_risks}
+    Dex Secrets: {secrets[:10]}
+    
+    GOAL:
+    1. Identify misalignment between App Name and Permissions.
+    2. Map findings to OWASP Mobile Top 10.
+    3. Provide remediation steps.
 
-    GOAL: 
-    1. Specifically analyze if the permissions align with the App Name and Description.
-    2. Identify "Unwanted/Suspicious Permissions" (e.g., a simple app like a calculator or flashlight asking for SMS/Camera/Location).
-    3. Map all findings to OWASP Mobile Top 10 categories (M1-M10).
-
-    OUTPUT FORMAT:
+    FORMAT:
     SUMMARY_START
     RISK SCORE: [0-10]
-    VERDICT: [Safe, Suspicious, or Malicious]
-    TOP FINDINGS: [Brief list of top 3 issues]
+    VERDICT: [Safe/Suspicious/Malicious]
+    TOP FINDINGS: [Summary]
     SUMMARY_END
 
     TABLE_START
-    [Vulnerability or Permission Name] | [Contextual Risk Analysis - Be specific about UNWANTED permissions vs app name] | [OWASP Category] | [Remediation Steps]
+    Vulnerability | Contextual Risk Analysis | OWASP Category | Remediation Steps
     ...
     TABLE_END
     """
 
     try:
-        # Increased timeout for complex mobile security prompts
-        response = model.generate_content(prompt, request_options={'timeout': 300})
-        if response and response.text:
-            return response.text.strip()
-    except Exception as e:
-        err_str = str(e)
-        # Force REST fallback for 404 or any configuration issue
-        if "404" in err_str or "API_VERSION" in err_str.upper():
-            print("[!] API Version Issue or 404. Attempting direct HTTP POST fallback (v1 Stable)...")
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-                headers = {'Content-Type': 'application/json'}
-                payload = {
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }]
-                }
-                resp = requests.post(url, headers=headers, json=payload, timeout=300)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # Extract text from the REST response structure
-                    return data['candidates'][0]['content']['parts'][0]['text'].strip()
-                else:
-                    return f"AI_ERROR: HTTP Fallback failed with status {resp.status_code} - {resp.text}"
-            except Exception as fallback_err:
-                return f"AI_ERROR: HTTP Fallback failed - {fallback_err}"
-        
-        return f"AI_ERROR: Model generation failed - {e}"
+        # Fallback logic: Try v1beta first, then v1
+        for version in ['v1beta', 'v1']:
+            url = f"https://generativelanguage.googleapis.com/{version}/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            resp = requests.post(url, json=payload, timeout=60)
             
-    return "AI_ERROR: Audit Timeout - Check Connection / API Status"
+            if resp.status_code == 200:
+                print(f"{G}[Connected]{W}")
+                data = resp.json()
+                return data['candidates'][0]['content']['parts'][0]['text'].strip()
+        
+        print(f"{R}[Failed]{W}")
+        return f"AI_ERROR: Model 404 or connection failed."
+            
+    except Exception as e:
+        print(f"{R}[Offline]{W}")
+        return f"AI_ERROR: {e}"
 
 def get_mock_audit(package, permissions, manifest_risks, secrets, app_title):
     """Provides a static security report using 'Air-Gapped Internal Logic Engine'."""
@@ -446,117 +466,6 @@ def parse_summary(ai_response):
         "findings": findings_match.group(1).strip() if findings_match else "No findings parsed."
     }
 
-def generate_pdf(pkg_name, app_title, ai_response):
-    """Generates the structured PDF report with a professional table."""
-    if not hasattr(FPDF, 'add_page'):
-        print("[!] FPDF not installed. Skipping PDF.")
-        return None
-
-    pdf = ProfessionalReport()
-    try:
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(0, 10, f"VAPT Report: {app_title if app_title != 'Unknown' else pkg_name}", 0, 1)
-        pdf.set_font("Arial", '', 10)
-        pdf.cell(0, 5, f"Package: {pkg_name}", 0, 1)
-        pdf.ln(5)
-
-        clean_report = ai_response.encode('latin-1', 'ignore').decode('latin-1')
-
-        # Section 1: Executive Summary
-        pdf.set_font("Arial", 'B', 12)
-        pdf.set_fill_color(241, 245, 249)
-        pdf.cell(0, 10, " 1. Security Analysis Overview", 0, 1, 'L', 1)
-        pdf.set_font("Arial", '', 10); pdf.ln(3)
-
-        summary_match = re.search(r"SUMMARY_START(.*?)SUMMARY_END", clean_report, re.DOTALL | re.IGNORECASE)
-        if summary_match:
-            pdf.multi_cell(0, 6, summary_match.group(1).strip())
-        pdf.ln(5)
-
-        # Section 2: Detailed Vulnerability Table
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, " 2. Detailed Findings & Remediation Guide", 0, 1, 'L', 1)
-        pdf.ln(3)
-
-        # Table Header
-        pdf.set_font("Arial", 'B', 9)
-        pdf.set_fill_color(30, 41, 59)
-        pdf.set_text_color(255, 255, 255)
-        
-        widths = [40, 60, 30, 60]
-        pdf.cell(widths[0], 10, "Component / Vulnerability", 1, 0, 'C', 1)
-        pdf.cell(widths[1], 10, "Contextual Risk Analysis", 1, 0, 'C', 1)
-        pdf.cell(widths[2], 10, "OWASP Cat.", 1, 0, 'C', 1)
-        pdf.cell(widths[3], 10, "Remediation Guide", 1, 1, 'C', 1)
-
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Arial", '', 8)
-
-        # Parse Table Data
-        table_match = re.search(r"TABLE_START(.*?)TABLE_END", clean_report, re.DOTALL | re.IGNORECASE)
-        if table_match:
-            rows = table_match.group(1).strip().split("\n")
-            for row in rows:
-                if "|" not in row: continue
-                cols = [c.strip() for c in row.split("|")]
-                if len(cols) < 4: continue
-
-                is_suspicious = "UNWANTED" in cols[1].upper() or "SUSPICIOUS" in cols[1].upper()
-                fill = 1 if is_suspicious else 0
-                if fill: pdf.set_fill_color(255, 235, 235)
-
-                x_start = pdf.get_x()
-                y_start = pdf.get_y()
-                line_height = 5
-                
-                if y_start > 250:
-                    pdf.add_page()
-                    pdf.set_font("Arial", 'B', 9)
-                    pdf.set_fill_color(30, 41, 59)
-                    pdf.set_text_color(255, 255, 255)
-                    pdf.cell(widths[0], 10, "Component / Vulnerability", 1, 0, 'C', 1)
-                    pdf.cell(widths[1], 10, "Contextual Risk Analysis", 1, 0, 'C', 1)
-                    pdf.cell(widths[2], 10, "OWASP Cat.", 1, 0, 'C', 1)
-                    pdf.cell(widths[3], 10, "Remediation Guide", 1, 1, 'C', 1)
-                    pdf.set_text_color(0, 0, 0)
-                    pdf.set_font("Arial", '', 8)
-                    y_start = pdf.get_y()
-
-                pdf.set_xy(x_start, y_start)
-                pdf.multi_cell(widths[0], line_height, cols[0], 1, 'L', fill)
-                h1 = pdf.get_y() - y_start
-                
-                pdf.set_xy(x_start + widths[0], y_start)
-                if is_suspicious:
-                    pdf.set_text_color(185, 28, 28)
-                    pdf.set_font("Arial", 'B', 8)
-                pdf.multi_cell(widths[1], line_height, cols[1], 1, 'L', fill)
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", '', 8)
-                h2 = pdf.get_y() - y_start
-                
-                pdf.set_xy(x_start + widths[0] + widths[1], y_start)
-                pdf.multi_cell(widths[2], line_height, cols[2], 1, 'C', fill)
-                h3 = pdf.get_y() - y_start
-                
-                pdf.set_xy(x_start + widths[0] + widths[1] + widths[2], y_start)
-                pdf.multi_cell(widths[3], line_height, cols[3], 1, 'L', fill)
-                h4 = pdf.get_y() - y_start
-                
-                max_h = max(h1, h2, h3, h4)
-                pdf.set_xy(x_start, y_start + max_h)
-
-        filename = f"MAST_Audit_{pkg_name}.pdf"
-        pdf.output(filename)
-        print(f"\n[+] Professional PDF generated: {filename}")
-        return filename
-    except Exception as e:
-        print(f"[-] PDF error: {e}")
-        return None
 
 def perform_scan(apk_path, mode='3'):
     """Main scanning logic with modular analysis modes and colorized UI."""
@@ -594,24 +503,23 @@ def perform_scan(apk_path, mode='3'):
         app_data = app(pkg, lang='en', country='us')
         title, desc = app_data.get('title', 'Unknown'), app_data.get('description', 'N/A')
         print(f"{G}[+] Forensic Context: {title} Verified              {W}")
-    except:
+    except Exception:
         title, desc = "Unknown", "Offline analysis: No description available."
-        print(f"{Y}[!] Forensic Context: Google Play Offline           {W}")
+        print(f"{Y}[!] Forensic Context: Google Play Offline / Limited Info{W}")
 
     # Audit Phase
     ai_report = ""
     is_mock = False
     
     if mode == '3':
-        print(f"{C}[*] Phase 4: AI Logic Correlation...{W}", end="\r")
         ai_report = get_ai_audit(pkg, a.get_permissions(), desc, m_risks, secrets, title)
         
-        if "AI_ERROR" in ai_report:
-            print(f"{Y}[!] AI Restricted: Switching to Air-Gapped Heuristic Mode{W}")
+        if "AI_ERROR" in ai_report or "ERROR" in ai_report.upper():
+            print(f"{Y}[!] AI Restricted: Switching to [!] Air-Gapped Heuristic Mode{W}")
             ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
             is_mock = True
         else:
-            print(f"{G}[+] Phase 4: AI Audit Successful                   {W}")
+            print(f"{G}[+] Phase 4: AI Analysis Complete                       {W}")
     else:
         print(f"{C}[*] Phase 4: Local Heuristic Reasoning...{W}", end="\r")
         ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
@@ -619,9 +527,9 @@ def perform_scan(apk_path, mode='3'):
         print(f"{G}[+] Phase 4: Static Reasoning Complete           {W}")
 
     summary = parse_summary(ai_report)
-    mode_label = "AI-POWERED" if not is_mock else "LOCAL ENGINE"
+    mode_label = "AI-POWERED VAPT" if not is_mock else "LOCAL HEURISTIC"
     
-    print("\n" + f"{B}{D}" + "-"*25 + f" {RESET}{B}{C}[ {mode_label} REPORT ]{RESET} " + f"{B}{D}" + "-"*25 + f"{RESET}")
+    print("\n" + f"{B}{M}" + "="*25 + f" {RESET}{B}{C}[ {mode_label} REPORT ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
     print(f"{C}[*] Package:   {W}{pkg}{RESET}")
     print(f"{G}[+] Risk Score: {summary['score']}/10{RESET}")
     print(f"{G}[+] Verdict:    {summary['verdict']}{RESET}")
@@ -640,6 +548,7 @@ def perform_scan(apk_path, mode='3'):
     return pdf_file, apk_path
 
 def main():
+    os.system('cls' if os.name == 'nt' else 'clear')
     parser = argparse.ArgumentParser(description="Professional Mobile Security Auditor Pro")
     parser.add_argument("apk", nargs="?", help="Path to APK")
     args = parser.parse_args()
@@ -648,7 +557,7 @@ def main():
     print_banner()
 
     current_apk = args.apk
-    pdf_file = None
+    current_pdf_report = None
 
     # Acquisition Logic
     while True:
@@ -662,7 +571,7 @@ def main():
             
             if src_choice == '2':
                 pkgs = get_adb_packages()
-                if pkgs == "EXIT": continue
+                if pkgs == "BACK": continue
                 if not pkgs: continue
                 
                 print(f"\n{B}{D}" + "-"*20 + f" {RESET}{B}{M}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
@@ -691,9 +600,9 @@ def main():
         clear_screen()
         print_banner()
         print(f"{W}[?] Select Analysis Depth:{RESET}")
-        print(f" [{C}1{RESET}] {B}Surface Audit{RESET} (Manifest & Permissions - Fast)")
-        print(f" [{C}2{RESET}] {B}Deep Static Audit{RESET} (Manifest + Secret Scanning - Local)")
-        print(f" [{C}3{RESET}] {B}AI-Powered Contextual Audit{RESET} (Full Intelligence - Cloud)")
+        print(f" [{C}1{RESET}] Surface Audit (Manifest)")
+        print(f" [{C}2{RESET}] Deep Static Audit (Manifest + Secrets)")
+        print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Gemini v1)")
         
         mode = input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
         if mode not in ['1', '2', '3']: mode = '3'
@@ -704,38 +613,47 @@ def main():
             if diag == "KEY_ERROR": sys.exit(1)
 
         # Run Scan
-        pdf_file, current_apk = perform_scan(current_apk, mode)
+        current_pdf_report, current_apk = perform_scan(current_apk, mode)
 
         # Master Post-Audit Menu
         while True:
-            print(f"\n{B}{M}" + "="*20 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{M}" + "="*20 + f"{RESET}")
+            print(f"\n{B}{M}" + "="*25 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
             print(f" [{G}1{RESET}] Open PDF Report")
-            print(f" [{C}2{RESET}] Change Analysis Mode (Same APK)")
-            print(f" [{C}3{RESET}] New Audit (Different APK)")
-            print(f" [{R}4{RESET}] Secure Wipe & Exit")
+            print(f" [{C}2{RESET}] New Scan (Different App)")
+            print(f" [{Y}3{RESET}] Delete Report & Exit (Secure Wipe)")
+            print(f" [{R}4{RESET}] Exit Only")
             
             choice = input(f"\n{Y}[?] Option > {RESET}").strip()
             
             if choice == '1':
-                if pdf_file and os.path.exists(pdf_file):
-                    if sys.platform == "win32": os.startfile(pdf_file)
+                if current_pdf_report and os.path.exists(current_pdf_report):
+                    if sys.platform == "win32": os.startfile(current_pdf_report)
                     else:
                         opener = "open" if sys.platform == "darwin" else "xdg-open"
-                        subprocess.run([opener, pdf_file])
-                else: print(f"{R}[!] No report file found.{RESET}")
+                        subprocess.run([opener, current_pdf_report])
+                else: 
+                    print(f"{R}[!] File not found at: {current_pdf_report}{RESET}")
             
             elif choice == '2':
-                break # Break inner loop to show mode selection
-                
+                current_apk = None 
+                pdf_file = None
+                break 
+            
             elif choice == '3':
-                current_apk = None # Reset APK to trigger source selection
-                break # Break inner loop
+                if current_pdf_report and os.path.exists(current_pdf_report):
+                    try: 
+                        os.remove(current_pdf_report)
+                        print(f"\n{G}[+] Secure Wipe Complete. Terminating Session...{RESET}")
+                    except PermissionError:
+                        print(f"\n{R}[!] ERROR: Permission Denied. Close the PDF report before deleting!{RESET}")
+                        continue
+                    except: pass
+                else:
+                    print(f"\n{G}[+] No report to wipe. Terminating Session...{RESET}")
+                sys.exit(0)
             
             elif choice == '4':
-                if pdf_file and os.path.exists(pdf_file):
-                    try: os.remove(pdf_file)
-                    except: pass
-                print(f"\n{G}[+] Secure Wipe Complete. Terminating Session...{RESET}")
+                print(f"\n{C}[*] Session Terminated.{RESET}")
                 sys.exit(0)
             else:
                 print(f"{R}[!] Invalid Option.{RESET}")
