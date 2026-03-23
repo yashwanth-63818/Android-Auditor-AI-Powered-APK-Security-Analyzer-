@@ -197,103 +197,179 @@ def diagnostic_connection_test():
 
 # --- PDF LOGIC (REPORTLAB) ---
 
-def generate_pdf(pkg_name, app_title, ai_response):
-    """Generates a professional VAPT report using ReportLab with Enterprise styling."""
+def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
+    """Generates a professional VAPT report using ReportLab with tiered depth."""
     filename = f"MAST_Audit_{pkg_name}.pdf"
     abs_path = os.path.abspath(filename)
     
-    try:
-        # Configuration for Letter pagesize and margins
-        doc = SimpleDocTemplate(abs_path, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Professional Custom Styles
-        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#1B2631"), alignment=TA_CENTER, spaceAfter=12)
-        sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=11, textColor=colors.grey, alignment=TA_CENTER, spaceAfter=24)
-        section_style = ParagraphStyle('SectionStyle', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor("#1B2631"), spaceBefore=20, spaceAfter=12)
-        normal_style = styles['Normal']
-        
-        # Header Section
-        elements.append(Paragraph("MOBILE VAPT AUDITOR: SECURITY REPORT", title_style))
-        elements.append(Paragraph(f"Enterprise Grade Binary Forensics | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", sub_style))
-        elements.append(Spacer(1, 12))
-        
-        elements.append(Paragraph(f"<b>Target Application:</b> {app_title}", normal_style))
-        elements.append(Paragraph(f"<b>Package Name:</b> {pkg_name}", normal_style))
+    # Severity & Remediation Metadata for Secrets
+    SECRETS_METADATA = {
+        "Google API Key": {"sev": "High", "rem": "Restrict API Key in GCP Console to specific IP/Package."},
+        "Firebase URL": {"sev": "Medium", "rem": "Check Firebase Security Rules & Database Permissions."},
+        "AWS Access Key": {"sev": "High", "rem": "Revoke Key immediately and rotate via IAM."},
+        "AWS S3 Bucket": {"sev": "Medium", "rem": "Ensure S3 bucket is private and ACLs are locked down."},
+        "Private IP/URL": {"sev": "Low", "rem": "Ensure internal IPs aren't exposed in production builds."},
+        "Sensitive Keyword": {"sev": "Medium", "rem": "Replace with Android Keystore or Encrypted Storage."}
+    }
+    
+    # Configuration for Letter pagesize and margins
+    doc = SimpleDocTemplate(abs_path, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Professional Custom Styles
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#1B2631"), alignment=TA_CENTER, spaceAfter=12)
+    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=11, textColor=colors.grey, alignment=TA_CENTER, spaceAfter=24)
+    section_style = ParagraphStyle('SectionStyle', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor("#1B2631"), spaceBefore=20, spaceAfter=12)
+    normal_style = styles['Normal']
+    
+    # Header Section
+    elements.append(Paragraph("MOBILE VAPT AUDITOR: SECURITY REPORT", title_style))
+    elements.append(Paragraph(f"Enterprise Grade Binary Forensics | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", sub_style))
+    elements.append(Spacer(1, 12))
+    
+    elements.append(Paragraph(f"<b>Target Application:</b> {app_title}", normal_style))
+    elements.append(Paragraph(f"<b>Package Name:</b> {pkg_name}", normal_style))
+    elements.append(Spacer(1, 24))
+    
+    clean_report = ai_response.replace('\x00', '') # Sanitize
+    
+    # 1. Executive Summary
+    elements.append(Paragraph("1. Security Analysis Overview", section_style))
+    summary_match = re.search(r"SUMMARY_START(.*?)SUMMARY_END", clean_report, re.DOTALL | re.IGNORECASE)
+    if summary_match:
+        summary_text = summary_match.group(1).strip().replace("\n", "<br/>")
+        elements.append(Paragraph(summary_text, normal_style))
+    elements.append(Spacer(1, 24))
+    
+    # 2. Forensic Findings Table
+    elements.append(Paragraph("2. Detailed Findings & Remediation Guide", section_style))
+    
+    # Define table header and cell styles with wrapping support
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=10, textColor=colors.white, fontName='Helvetica-Bold')
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=9, leading=11)
+    
+    data = [[
+        Paragraph("<b>Component / Vulnerability</b>", header_style),
+        Paragraph("<b>Contextual Risk Analysis</b>", header_style),
+        Paragraph("<b>OWASP Cat.</b>", header_style),
+        Paragraph("<b>Remediation Guide</b>", header_style)
+    ]]
+    
+    table_match = re.search(r"TABLE_START(.*?)TABLE_END", clean_report, re.DOTALL | re.IGNORECASE)
+    if table_match:
+        rows = table_match.group(1).strip().split("\n")
+        for row in rows:
+            if "|" not in row: continue
+            cols = [c.strip() for c in row.split("|")]
+            if len(cols) >= 4:
+                # Wrap each cell in a Paragraph for automatic text wrapping
+                wrapped_row = [Paragraph(col, cell_style) for col in cols[:4]]
+                data.append(wrapped_row)
+    
+    # Table Alignment: Total 540 pts (Letter width 612 - 60 margin)
+    t = Table(data, colWidths=[120, 180, 80, 160], repeatRows=1)
+    
+    # Enterprise Table Styling: Dark Blue Header, White Text, Grey Grid Lines
+    style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1B2631")), # Enterprise Dark Blue
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+    ])
+    
+    # Alternate Row Shading
+    for i in range(1, len(data)):
+        if i % 2 == 0:
+            style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor("#F2F4F4"))
+    
+    t.setStyle(style)
+    elements.append(t)
+    
+    # 3. Hardcoded Secrets Found (Forensic Scan result)
+    if secrets:
         elements.append(Spacer(1, 24))
+        title_suffix = "(Executive Summary)" if pdf_type == "summary" else "(Full Forensic Trail)"
+        elements.append(Paragraph(f"3. Hardcoded Secrets Found {title_suffix}", section_style))
         
-        clean_report = ai_response.replace('\x00', '') # Sanitize
+        sec_header_style = ParagraphStyle('SecHeader', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName='Helvetica-Bold')
+        sec_cell_style = ParagraphStyle('SecCell', parent=styles['Normal'], fontSize=8, leading=10)
         
-        # 1. Executive Summary
-        elements.append(Paragraph("1. Security Analysis Overview", section_style))
-        summary_match = re.search(r"SUMMARY_START(.*?)SUMMARY_END", clean_report, re.DOTALL | re.IGNORECASE)
-        if summary_match:
-            summary_text = summary_match.group(1).strip().replace("\n", "<br/>")
-            elements.append(Paragraph(summary_text, normal_style))
-        elements.append(Spacer(1, 24))
+        # New Column structure: Type, Evidence, Severity, Remediation
+        sec_data = [[
+            Paragraph("<b>Secret Type</b>", sec_header_style), 
+            Paragraph("<b>Evidence (Match)</b>", sec_header_style),
+            Paragraph("<b>Severity</b>", sec_header_style),
+            Paragraph("<b>Remediation Guide</b>", sec_header_style)
+        ]]
         
-        # 2. Forensic Findings Table
-        elements.append(Paragraph("2. Detailed Findings & Remediation Guide", section_style))
+        # Filtering for Executive Summary
+        filtered_secrets = secrets
+        if pdf_type == "summary":
+            # Pick High Risk first, then Medium, up to 15
+            high_risk = [s for s in secrets if SECRETS_METADATA.get(s['type'], {}).get('sev') == "High"]
+            med_risk = [s for s in secrets if SECRETS_METADATA.get(s['type'], {}).get('sev') == "Medium"]
+            low_risk = [s for s in secrets if SECRETS_METADATA.get(s['type'], {}).get('sev') == "Low"]
+            filtered_secrets = (high_risk + med_risk + low_risk)[:15]
+
+        for s in filtered_secrets:
+            meta = SECRETS_METADATA.get(s['type'], {"sev": "Medium", "rem": "Apply secure coding practices."})
+            
+            # Color coding for severity
+            sev_color = "#943126" if meta['sev'] == "High" else ("#7E5109" if meta['sev'] == "Medium" else "#1B4F72")
+            sev_p = Paragraph(f"<font color='{sev_color}'><b>{meta['sev']}</b></font>", sec_cell_style)
+            
+            sec_data.append([
+                Paragraph(s['type'], sec_cell_style), 
+                Paragraph(s['match'][:150] + ("..." if len(s['match']) > 150 else ""), sec_cell_style),
+                sev_p,
+                Paragraph(meta['rem'], sec_cell_style)
+            ])
         
-        data = [["Component / Vulnerability", "Contextual Risk Analysis", "OWASP Cat.", "Remediation Guide"]]
-        
-        table_match = re.search(r"TABLE_START(.*?)TABLE_END", clean_report, re.DOTALL | re.IGNORECASE)
-        if table_match:
-            rows = table_match.group(1).strip().split("\n")
-            for row in rows:
-                if "|" not in row: continue
-                cols = [c.strip() for c in row.split("|")]
-                if len(cols) >= 4:
-                    data.append(cols[:4])
-        
-        # Table Alignment: Total 540 pts (Letter width 612 - 60 margin)
-        t = Table(data, colWidths=[120, 180, 80, 160])
-        
-        # Enterprise Table Styling
-        style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1B2631")), # Enterprise Dark Blue
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('LEFTPADDING', (0, 0), (-1, -1), 10),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 10),
+        # Consistent column widths: [120, 180, 80, 160]
+        st = Table(sec_data, colWidths=[110, 190, 75, 165], repeatRows=1)
+        st_style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1B2631")), 
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
         ])
         
-        # Alternate Row Shading & Highlighting
-        for i in range(1, len(data)):
+        for i in range(1, len(sec_data)):
             if i % 2 == 0:
-                style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor("#F2F4F4"))
-            
-            # Risk Highlighting
-            risk_text = data[i][1].upper()
-            if any(x in risk_text for x in ["UNWANTED", "SUSPICIOUS", "CRITICAL", "HIGH", "MALICIOUS"]):
-                style.add('BACKGROUND', (1, i), (1, i), colors.HexColor("#FDEDEC"))
-                style.add('TEXTCOLOR', (1, i), (1, i), colors.HexColor("#943126"))
+                st_style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor("#F2F2F2"))
         
-        t.setStyle(style)
-        elements.append(t)
+        st.setStyle(st_style)
+        elements.append(st)
         
-        # Final Footer
-        elements.append(Spacer(1, 40))
-        elements.append(Paragraph("<i>End of Forensic Security Audit. Confidential Document.</i>", sub_style))
-        
-        doc.build(elements)
-        print(f"\n{G}[+] Professional PDF generated at: {abs_path}{W}")
-        return abs_path
-        
-    except PermissionError:
-        print(f"\n{R}[!] ERROR: Permission Denied. Close the existing PDF file before scanning again!{W}")
-        return None
-    except Exception as e:
-        print(f"{R}[-] PDF Generation Failed: {e}{W}")
-        return None
+        if pdf_type == "summary" and len(secrets) > 15:
+            elements.append(Spacer(1, 6))
+            elements.append(Paragraph(f"<i>[!] Note: Showing top 15 critical findings. Total {len(secrets)} secrets detected in full scan.</i>", sub_style))
+        elif len(secrets) > 0:
+            elements.append(Spacer(1, 6))
+            elements.append(Paragraph(f"<i>Total forensic entities detected: {len(secrets)}</i>", sub_style))
+
+    # Final Footer
+    elements.append(Spacer(1, 40))
+    elements.append(Paragraph("<i>End of Forensic Security Audit. Confidential Document.</i>", sub_style))
+    
+    # File Lock Handling with Retry Loop
+    while True:
+        try:
+            doc.build(elements)
+            print(f"\n{G}[+] Professional PDF generated at: {abs_path}{W}")
+            return abs_path
+        except PermissionError:
+            print(f"\n{B}{R}[!] CRITICAL: Close the PDF file '{filename}' and press Enter to retry.{RESET}")
+            input(f"{Y}[?] Press Enter to continue...{RESET}")
+        except Exception as e:
+            print(f"{R}[-] PDF Generation Failed: {e}{W}")
+            return None
 
 # --- CORE FUNCTIONS ---
 
@@ -541,40 +617,62 @@ def perform_scan(apk_path, mode='3'):
     choice = input(f"\n{Y}[?] Generate Detailed PDF Report? (y/n): {RESET}").lower()
     pdf_file = None
     if choice == 'y':
-        print(f"{C}[*] Finalizing PDF Forensics...{RESET}")
-        pdf_file = generate_pdf(pkg, title, ai_report)
+        print(f"\n{W}[?] Select Report Scope:{RESET}")
+        print(f" [{C}1{RESET}] Executive Summary (Critical Findings Only)")
+        print(f" [{C}2{RESET}] Full Forensic Report (All {len(secrets)} Findings)")
+        
+        scope_choice = input(f"\n{Y}[?] Scope > {RESET}").strip()
+        pdf_type = "summary" if scope_choice == '1' else "full"
+        
+        print(f"{C}[*] Finalizing PDF Forensics ({pdf_type.upper()})...{RESET}")
+        pdf_file = generate_pdf(pkg, title, ai_report, secrets, pdf_type)
         print(f"{G}[+] Audit Report Saved: {W}{pdf_file}{RESET}")
     
     return pdf_file, apk_path
 
 def main():
-    os.system('cls' if os.name == 'nt' else 'clear')
-    parser = argparse.ArgumentParser(description="Professional Mobile Security Auditor Pro")
-    parser.add_argument("apk", nargs="?", help="Path to APK")
-    args = parser.parse_args()
-
-    # Initial Screen
-    print_banner()
-
-    current_apk = args.apk
-    current_pdf_report = None
-
-    # Acquisition Logic
     while True:
-        if not current_apk:
+        clear_screen()
+        print_banner()
+        
+        # Clean Prompt at Startup
+        cmd = input(f"{W}[?] Type {G}'start'{W} to begin audit or {R}'end'{W} to exit: {RESET}").strip().lower()
+        
+        if cmd == 'end':
+            print(f"\n{B}{R}[+] Terminating Session...{RESET}")
+            sys.exit(0)
+        
+        if cmd != 'start':
+            print(f"{R}[!] Invalid Command. Please type 'start' or 'end'.{RESET}")
+            time.sleep(1)
+            continue
+
+        # Reset session variables
+        current_pdf_report = None
+        current_apk = None
+
+        # Acquisition Loop
+        while True:
             clear_screen()
             print_banner()
             print(f"{W}[?] Select APK Source:{RESET}")
             print(f" [{C}1{RESET}] Manual APK Path (Local)")
             print(f" [{C}2{RESET}] Select App from Phone (ADB)")
-            src_choice = input(f"\n{Y}[?] Source > {RESET}").strip()
+            print(f" [{Y}B{RESET}] Back to Main Menu")
             
+            src_choice = input(f"\n{Y}[?] Source > {RESET}").strip().upper()
+            
+            if src_choice == 'B':
+                break
+
             if src_choice == '2':
                 pkgs = get_adb_packages()
                 if pkgs == "BACK": continue
                 if not pkgs: continue
                 
-                print(f"\n{B}{D}" + "-"*20 + f" {RESET}{B}{M}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
+                clear_screen()
+                print_banner()
+                print(f"{B}{D}" + "-"*20 + f" {RESET}{B}{M}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
                 for i, p in enumerate(pkgs[:40]):
                     print(f" [{C}{i+1:2d}{RESET}] {W}{p}{RESET}")
                 print(f"{B}{D}" + "-" * 63 + f"{RESET}")
@@ -587,79 +685,91 @@ def main():
                     if not current_apk: continue
                 except:
                     print(f"{R}[!] Invalid Selection.{RESET}")
+                    time.sleep(1)
                     continue
             else:
-                path_input = input(f"\n{Y}[?] Enter path to APK: {RESET}").strip().strip('"')
+                path_input = input(f"\n{Y}[?] Enter path to APK (or 'B' to go back): {RESET}").strip().strip('"')
+                if path_input.upper() == 'B': continue
                 if os.path.exists(path_input):
-                    current_apk = path_input
+                    current_apk = os.path.abspath(path_input)
                 else:
                     print(f"{R}[!] File not found.{RESET}")
+                    time.sleep(1)
                     continue
-        
-        # Mode Selection
-        clear_screen()
-        print_banner()
-        print(f"{W}[?] Select Analysis Depth:{RESET}")
-        print(f" [{C}1{RESET}] Surface Audit (Manifest)")
-        print(f" [{C}2{RESET}] Deep Static Audit (Manifest + Secrets)")
-        print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Gemini v1)")
-        
-        mode = input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
-        if mode not in ['1', '2', '3']: mode = '3'
-
-        # Diagnostic Test only for AI mode
-        if mode == '3':
-            diag = diagnostic_connection_test()
-            if diag == "KEY_ERROR": sys.exit(1)
-
-        # Run Scan
-        current_pdf_report, current_apk = perform_scan(current_apk, mode)
-
-        # Master Post-Audit Menu
-        while True:
-            print(f"\n{B}{M}" + "="*25 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
-            print(f" [{G}1{RESET}] Open PDF Report")
-            print(f" [{C}2{RESET}] New Scan (Different App)")
-            print(f" [{Y}3{RESET}] Delete Report & Exit (Secure Wipe)")
-            print(f" [{R}4{RESET}] Exit Only")
             
-            choice = input(f"\n{Y}[?] Option > {RESET}").strip()
-            
-            if choice == '1':
-                if current_pdf_report and os.path.exists(current_pdf_report):
-                    if sys.platform == "win32": os.startfile(current_pdf_report)
+            # If APK acquired, proceed to Mode Selection
+            if current_apk:
+                clear_screen()
+                print_banner()
+                print(f"{W}[?] Select Analysis Depth:{RESET}")
+                print(f" [{C}1{RESET}] Surface Audit (Manifest)")
+                print(f" [{C}2{RESET}] Deep Static Audit (Manifest + Secrets)")
+                print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Gemini v1)")
+                
+                mode = input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
+                if mode not in ['1', '2', '3']: mode = '3'
+
+                # Diagnostic Test only for AI mode
+                if mode == '3':
+                    diag = diagnostic_connection_test()
+                    if diag == "KEY_ERROR": sys.exit(1)
+
+                # Run Scan
+                # Ensure current_pdf_report stores absolute path and doesn't wipe previous if scan fails
+                new_pdf, _ = perform_scan(current_apk, mode)
+                if new_pdf:
+                    current_pdf_report = new_pdf
+
+                # Master Control Menu (Loop until New Scan or Exit)
+                while True:
+                    print(f"\n{B}{M}" + "="*25 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
+                    print(f" [{G}1{RESET}] {W}Open PDF Report{RESET}")
+                    print(f" [{C}2{RESET}] {W}Reset (Different App in this session){RESET}")
+                    print(f" [{Y}3{RESET}] {W}Delete Report & Return to Start{RESET}")
+                    print(f" [{R}4{RESET}] {W}Exit Auditor{RESET}")
+                    
+                    choice = input(f"\n{Y}[?] Option > {RESET}").strip()
+                    
+                    if choice == '1':
+                        if current_pdf_report and os.path.exists(current_pdf_report):
+                            print(f"{G}[*] Launching: {current_pdf_report}{RESET}")
+                            if sys.platform == "win32": 
+                                os.startfile(current_pdf_report)
+                            else:
+                                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                                subprocess.run([opener, current_pdf_report])
+                        else: 
+                            print(f"{R}[!] No report available to open at: {current_pdf_report}{RESET}")
+                    
+                    elif choice == '2':
+                        current_apk = None 
+                        break # Break from master menu to go back to Acquisition logic
+                    
+                    elif choice == '3':
+                        if current_pdf_report and os.path.exists(current_pdf_report):
+                            try: 
+                                os.remove(current_pdf_report)
+                                print(f"\n{G}[+] Secure Wipe Complete.{RESET}")
+                                current_pdf_report = None
+                            except PermissionError:
+                                print(f"\n{R}[!] ERROR: Permission Denied. Close the PDF report before deleting!{RESET}")
+                                continue
+                        else:
+                            print(f"\n{Y}[-] No report found to delete.{RESET}")
+                        current_apk = None
+                        break # Break from master menu to go back to Acquisition logic
+                    
+                    elif choice == '4':
+                        print(f"\n{B}{R}[+] Terminating Session...{RESET}")
+                        sys.exit(0)
                     else:
-                        opener = "open" if sys.platform == "darwin" else "xdg-open"
-                        subprocess.run([opener, current_pdf_report])
-                else: 
-                    print(f"{R}[!] File not found at: {current_pdf_report}{RESET}")
-            
-            elif choice == '2':
-                current_apk = None 
-                pdf_file = None
-                break 
-            
-            elif choice == '3':
-                if current_pdf_report and os.path.exists(current_pdf_report):
-                    try: 
-                        os.remove(current_pdf_report)
-                        print(f"\n{G}[+] Secure Wipe Complete. Terminating Session...{RESET}")
-                    except PermissionError:
-                        print(f"\n{R}[!] ERROR: Permission Denied. Close the PDF report before deleting!{RESET}")
-                        continue
-                    except: pass
-                else:
-                    print(f"\n{G}[+] No report to wipe. Terminating Session...{RESET}")
-                sys.exit(0)
-            
-            elif choice == '4':
-                print(f"\n{C}[*] Session Terminated.{RESET}")
-                sys.exit(0)
-            else:
-                print(f"{R}[!] Invalid Option.{RESET}")
-        
-        if current_apk is None: continue # Back to acquisition
-        else: continue # Back to mode selection (inner break choice 2)
+                        print(f"{R}[!] Invalid Option.{RESET}")
+                
+                # After breaking from master control menu, we go back to the top of acquisition loop
+                # If current_apk is None, it will prompt for source again.
+                if current_apk is None:
+                    continue
+
 
 if __name__ == "__main__":
     main()
