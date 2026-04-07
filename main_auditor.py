@@ -26,9 +26,33 @@ def clear_screen():
     """Clears the terminal screen for a clean UX."""
     os.system('cls' if os.name == 'nt' else 'clear')
 
+def get_user_input(prompt_text):
+    """Global input wrapper to handle the 'end' command anytime."""
+    user_input = input(prompt_text).strip()
+    if user_input.lower() == 'end':
+        print(f"\n{B}{R}[+] Secure Wipe Executed. Terminating Session...{RESET}")
+        time.sleep(1)
+        sys.exit(0)
+    return user_input
+
+def generate_launch_wrapper():
+    """Generates a .bat file for easy launching from any terminal."""
+    try:
+        # Use exact absolute path requesting by user to fix 'No such file' error
+        bat_content = '@echo off\npython "C:\\Yashwanth-Academics\\Andoid-Auditor\\main_auditor.py" %*'
+        
+        with open("startscan.bat", "w") as f:
+            f.write(bat_content)
+        
+        print(f"{G}[+] Global Command 'startscan' updated with Absolute Path.{W}")
+    except Exception as e:
+        print(f"{R}[-] Failed to generate launch wrapper: {e}{W}")
+
 def print_banner():
+    """Clears the screen and prints the professional Android Auditor banner."""
+    os.system('cls' if os.name == 'nt' else 'clear')
     print(f"\n{B}{M}" + "="*65)
-    print(f"      🛡️   M O B I L E   A U D I T O R   P R O   v1.5   🛡️")
+    print(f"      🛡️         A N D R O I D   A U D I T O R         🛡️")
     print("="*65 + f"{RESET}\n")
 
 # Robust dependency handling
@@ -131,7 +155,7 @@ def get_adb_packages():
         if not device_found:
             print(f"\n{B}{R}[!] ERROR: NO DEVICE DETECTED.{W}")
             print(f"{Y} [R] Retry | [B] Back to Menu{W}")
-            sub_choice = input(f"\n{Y}[?] Choice: {W}").strip().upper()
+            sub_choice = get_user_input(f"\n{Y}[?] Choice: {W}").strip().upper()
             if sub_choice == 'R':
                 continue
             return "BACK"
@@ -199,7 +223,8 @@ def diagnostic_connection_test():
 
 def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
     """Generates a professional VAPT report using ReportLab with tiered depth."""
-    filename = f"MAST_Audit_{pkg_name}.pdf"
+    suffix = "_Summary" if pdf_type == "summary" else "_Full"
+    filename = f"MAST_Audit_{pkg_name}{suffix}.pdf"
     abs_path = os.path.abspath(filename)
     
     # Severity & Remediation Metadata for Secrets
@@ -331,7 +356,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
             ])
         
         # Consistent column widths: [120, 180, 80, 160]
-        st = Table(sec_data, colWidths=[110, 190, 75, 165], repeatRows=1)
+        st = Table(sec_data, colWidths=[120, 180, 80, 160], repeatRows=1)
         st_style = TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1B2631")), 
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
@@ -366,7 +391,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
             return abs_path
         except PermissionError:
             print(f"\n{B}{R}[!] CRITICAL: Close the PDF file '{filename}' and press Enter to retry.{RESET}")
-            input(f"{Y}[?] Press Enter to continue...{RESET}")
+            get_user_input(f"{Y}[?] Press Enter to continue...{RESET}")
         except Exception as e:
             print(f"{R}[-] PDF Generation Failed: {e}{W}")
             return None
@@ -614,14 +639,14 @@ def perform_scan(apk_path, mode='3'):
         print(f"{C}[*] Forensic Scan: {G}{len(secrets)} hardcoded entities found.{RESET}")
     print(f"{B}{D}" + "-" * 75 + f"{RESET}")
 
-    choice = input(f"\n{Y}[?] Generate Detailed PDF Report? (y/n): {RESET}").lower()
+    choice = get_user_input(f"\n{Y}[?] Generate Detailed PDF Report? (y/n): {RESET}").lower()
     pdf_file = None
     if choice == 'y':
         print(f"\n{W}[?] Select Report Scope:{RESET}")
-        print(f" [{C}1{RESET}] Executive Summary (Critical Findings Only)")
-        print(f" [{C}2{RESET}] Full Forensic Report (All {len(secrets)} Findings)")
+        print(f" [{C}1{RESET}] ⚡ Executive Summary (High-Risk/Short)")
+        print(f" [{C}2{RESET}] 🛡️ Full Forensic Trail (All {len(secrets)} Findings)")
         
-        scope_choice = input(f"\n{Y}[?] Scope > {RESET}").strip()
+        scope_choice = get_user_input(f"\n{Y}[?] Scope > {RESET}").strip()
         pdf_type = "summary" if scope_choice == '1' else "full"
         
         print(f"{C}[*] Finalizing PDF Forensics ({pdf_type.upper()})...{RESET}")
@@ -631,14 +656,18 @@ def perform_scan(apk_path, mode='3'):
     return pdf_file, apk_path
 
 def main():
+    generate_launch_wrapper()
+    print(f"{Y}[!] PRO-TIP: Add this folder ({os.getcwd()}) to your 'System Environment Variables (PATH)'.{W}")
+    print(f"{Y}    Then you can just type 'startscan' from ANY terminal!{W}\n")
+    
     while True:
-        clear_screen()
         print_banner()
         
         # Clean Prompt at Startup
-        cmd = input(f"{W}[?] Type {G}'start'{W} to begin audit or {R}'end'{W} to exit: {RESET}").strip().lower()
+        cmd = get_user_input(f"{W}[?] Type {G}'start'{W} to begin audit or {R}'end'{W} to exit: {RESET}").strip().lower()
         
         if cmd == 'end':
+            # This is actually handled by get_user_input, but kept for logic clarity
             print(f"\n{B}{R}[+] Terminating Session...{RESET}")
             sys.exit(0)
         
@@ -653,14 +682,13 @@ def main():
 
         # Acquisition Loop
         while True:
-            clear_screen()
             print_banner()
             print(f"{W}[?] Select APK Source:{RESET}")
             print(f" [{C}1{RESET}] Manual APK Path (Local)")
             print(f" [{C}2{RESET}] Select App from Phone (ADB)")
             print(f" [{Y}B{RESET}] Back to Main Menu")
             
-            src_choice = input(f"\n{Y}[?] Source > {RESET}").strip().upper()
+            src_choice = get_user_input(f"\n{Y}[?] Source > {RESET}").strip().upper()
             
             if src_choice == 'B':
                 break
@@ -670,14 +698,13 @@ def main():
                 if pkgs == "BACK": continue
                 if not pkgs: continue
                 
-                clear_screen()
                 print_banner()
                 print(f"{B}{D}" + "-"*20 + f" {RESET}{B}{M}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
                 for i, p in enumerate(pkgs[:40]):
                     print(f" [{C}{i+1:2d}{RESET}] {W}{p}{RESET}")
                 print(f"{B}{D}" + "-" * 63 + f"{RESET}")
                 
-                pkg_idx = input(f"\n{Y}[?] Select package number (or '0' to back): {RESET}").strip()
+                pkg_idx = get_user_input(f"\n{Y}[?] Select package number (or '0' to back): {RESET}").strip()
                 if pkg_idx == '0': continue
                 try:
                     selected_pkg = pkgs[int(pkg_idx)-1]
@@ -688,7 +715,7 @@ def main():
                     time.sleep(1)
                     continue
             else:
-                path_input = input(f"\n{Y}[?] Enter path to APK (or 'B' to go back): {RESET}").strip().strip('"')
+                path_input = get_user_input(f"\n{Y}[?] Enter path to APK (or 'B' to go back): {RESET}").strip().strip('"')
                 if path_input.upper() == 'B': continue
                 if os.path.exists(path_input):
                     current_apk = os.path.abspath(path_input)
@@ -699,14 +726,13 @@ def main():
             
             # If APK acquired, proceed to Mode Selection
             if current_apk:
-                clear_screen()
                 print_banner()
                 print(f"{W}[?] Select Analysis Depth:{RESET}")
                 print(f" [{C}1{RESET}] Surface Audit (Manifest)")
                 print(f" [{C}2{RESET}] Deep Static Audit (Manifest + Secrets)")
                 print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Gemini v1)")
                 
-                mode = input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
+                mode = get_user_input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
                 if mode not in ['1', '2', '3']: mode = '3'
 
                 # Diagnostic Test only for AI mode
@@ -728,7 +754,7 @@ def main():
                     print(f" [{Y}3{RESET}] {W}Delete Report & Return to Start{RESET}")
                     print(f" [{R}4{RESET}] {W}Exit Auditor{RESET}")
                     
-                    choice = input(f"\n{Y}[?] Option > {RESET}").strip()
+                    choice = get_user_input(f"\n{Y}[?] Option > {RESET}").strip()
                     
                     if choice == '1':
                         if current_pdf_report and os.path.exists(current_pdf_report):
