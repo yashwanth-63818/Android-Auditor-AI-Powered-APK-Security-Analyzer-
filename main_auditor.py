@@ -52,8 +52,8 @@ def print_banner():
     """Clears the screen and prints the professional Android Auditor banner."""
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"\n{B}{M}" + "="*65)
-    print(f"      🛡️         A N D R O I D   A U D I T O R         🛡️")
-    print("="*65 + f"{RESET}\n")
+    print(f"{B}{M}      🛡️         A N D R O I D   A U D I T O R         🛡️")
+    print(f"{B}{M}" + "="*65 + f"{RESET}\n")
 
 # Robust dependency handling
 try:
@@ -73,12 +73,13 @@ except ImportError:
     print("[-] Error: ReportLab not found. Run 'pip install reportlab'")
     sys.exit(1)
 
+from openai import OpenAI
 from google_play_scraper import app
 from dotenv import load_dotenv
 
 # Initialize Environment
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Force UTF-8 encoding for Windows terminals
 if sys.stdout.encoding != 'utf-8':
@@ -189,9 +190,9 @@ def pull_apk_from_adb(package_name):
     return None
 
 def diagnostic_connection_test():
-    """Diagnostic check for Gemini API status and Key validity via REST API."""
-    if not GEMINI_API_KEY:
-        print(f"\n{B}{R}[!] CRITICAL: Missing GEMINI_API_KEY in .env file.{W}")
+    """Diagnostic check for Groq API status and Key validity."""
+    if not GROQ_API_KEY:
+        print(f"\n{B}{R}[!] CRITICAL: Missing GROQ_API_KEY in .env file.{W}")
         return False
 
     print(f"{C}[*] Performing Diagnostic Connection Test...{W}")
@@ -200,17 +201,21 @@ def diagnostic_connection_test():
         print(f"{R}[!] Diagnostic: 8.8.8.8 Unreachable. Check your network/proxy.{W}")
         return "NETWORK_ERROR"
 
-    print(f"{C}[*] Synchronizing with Gemini 1.5 Flash... {W}", end="", flush=True)
+    print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
     
     try:
-        for version in ['v1beta', 'v1']:
-            url = f"https://generativelanguage.googleapis.com/{version}/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-            payload = {"contents": [{"parts": [{"text": "ping"}]}]}
-            resp = requests.post(url, json=payload, timeout=10)
-            if resp.status_code == 200:
-                print(f"{G}[Connected]{W}")
-                print(f"{G}[+] Diagnostic: Gemini API is LIVE and Key is VALID.{W}")
-                return True
+        client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=GROQ_API_KEY
+        )
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": "ping"}],
+            model="llama3-8b-8192",
+        )
+        if chat_completion.choices:
+            print(f"{G}[Connected]{W}")
+            print(f"{G}[+] Diagnostic: Groq API is LIVE and Key is VALID.{W}")
+            return True
         
         print(f"{R}[Failed]{W}")
         return "AI_OFFLINE"
@@ -249,7 +254,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
     normal_style = styles['Normal']
     
     # Header Section
-    elements.append(Paragraph("MOBILE VAPT AUDITOR: SECURITY REPORT", title_style))
+    elements.append(Paragraph("ANDROID AUDITOR: SECURITY REPORT", title_style))
     elements.append(Paragraph(f"Enterprise Grade Binary Forensics | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", sub_style))
     elements.append(Spacer(1, 12))
     
@@ -435,14 +440,14 @@ def hunt_secrets(apk_obj):
     return found
 
 def get_ai_audit(package, permissions, description, manifest_risks, secrets, app_title):
-    """Performs deep AI analysis using direct REST API."""
-    if not GEMINI_API_KEY:
-        return "ERROR: Missing GEMINI_API_KEY in .env"
+    """Performs deep AI analysis using Groq SDK."""
+    if not GROQ_API_KEY:
+        return "ERROR: Missing GROQ_API_KEY in .env"
 
     if not is_google_reachable():
         return "AI_ERROR: No Internet Connection."
 
-    print(f"{C}[*] Synchronizing with Gemini 1.5 Flash... {W}", end="", flush=True)
+    print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
     
     prompt = f"""
     ROLE: Senior Mobile Security Auditor.
@@ -477,22 +482,25 @@ def get_ai_audit(package, permissions, description, manifest_risks, secrets, app
     """
 
     try:
-        # Fallback logic: Try v1beta first, then v1
-        for version in ['v1beta', 'v1']:
-            url = f"https://generativelanguage.googleapis.com/{version}/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            resp = requests.post(url, json=payload, timeout=60)
-            
-            if resp.status_code == 200:
-                print(f"{G}[Connected]{W}")
-                data = resp.json()
-                return data['candidates'][0]['content']['parts'][0]['text'].strip()
+        client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=GROQ_API_KEY
+        )
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama3-8b-8192",
+        )
+        
+        if chat_completion.choices:
+            print(f"{G}[Connected]{W}")
+            return chat_completion.choices[0].message.content.strip()
         
         print(f"{R}[Failed]{W}")
-        return f"AI_ERROR: Model 404 or connection failed."
+        return f"AI_ERROR: Received empty response from AI."
             
     except Exception as e:
         print(f"{R}[Offline]{W}")
+        print(f"{R}[!] Error details: {e}{W}")
         return f"AI_ERROR: {e}"
 
 def get_mock_audit(package, permissions, manifest_risks, secrets, app_title):
