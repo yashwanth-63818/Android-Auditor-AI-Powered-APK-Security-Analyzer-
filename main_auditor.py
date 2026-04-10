@@ -79,7 +79,14 @@ from dotenv import load_dotenv
 
 # Initialize Environment
 load_dotenv()
+# =========================================================================
+# HARDCODE OPTION (Backup): If you get 401 Invalid API Key errors constantly:
+# 1. Uncomment the line below and paste your valid gsk_... key inside the quotes.
+# 2. Replace the line `GROQ_API_KEY = os.getenv("GROQ_API_KEY")` with `GROQ_API_KEY = GROQ_API_KEY_HARDCODED`
+# GROQ_API_KEY_HARDCODED = "gsk_your_key_here"
+# =========================================================================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+print(f"DEBUG: API Key found: {str(os.environ.get('GROQ_API_KEY'))[:10]}...")
 
 # Force UTF-8 encoding for Windows terminals
 if sys.stdout.encoding != 'utf-8':
@@ -202,6 +209,9 @@ def diagnostic_connection_test():
         return "NETWORK_ERROR"
 
     print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
+    
+    if not os.environ.get("GROQ_API_KEY") and not GROQ_API_KEY:
+        print("\n[!] Error: System Environment Variable 'GROQ_API_KEY' not found!")
     
     try:
         client = OpenAI(
@@ -449,6 +459,9 @@ def get_ai_audit(package, permissions, description, manifest_risks, secrets, app
 
     print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
     
+    if not os.environ.get("GROQ_API_KEY") and not GROQ_API_KEY:
+        print("\n[!] Error: System Environment Variable 'GROQ_API_KEY' not found!")
+
     prompt = f"""
     ROLE: Senior Mobile Security Auditor.
     TASK: Perform a professional VAPT analysis of the following Android APK data.
@@ -624,11 +637,12 @@ def perform_scan(apk_path, mode='3'):
         ai_report = get_ai_audit(pkg, a.get_permissions(), desc, m_risks, secrets, title)
         
         if "AI_ERROR" in ai_report or "ERROR" in ai_report.upper():
+            print(f"\n{R}[!] Exact AI Error: {ai_report}{W}")
             print(f"{Y}[!] AI Restricted: Switching to [!] Air-Gapped Heuristic Mode{W}")
             ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
             is_mock = True
         else:
-            print(f"{G}[+] Phase 4: AI Analysis Complete                       {W}")
+            print(f"{C}[+] AI Analysis: ACTIVE (Groq/Llama-3 Engine)                       {W}")
     else:
         print(f"{C}[*] Phase 4: Local Heuristic Reasoning...{W}", end="\r")
         ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
