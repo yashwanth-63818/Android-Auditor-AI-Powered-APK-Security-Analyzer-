@@ -16,6 +16,15 @@ if os.name == 'nt':
 
 PHOSPHOR_GREEN = '\033[38;2;15;255;80m\033[1m'
 NEON_RED = '\033[38;2;255;20;20m\033[1m'
+TRUE_WHITE = '\033[38;2;255;255;255m\033[1m'
+
+try:
+    from loguru import logger
+    logger.remove()
+    fmt = PHOSPHOR_GREEN + "{time:YYYY-MM-DD HH:mm:ss.SSS} | " + NEON_RED + "{level}" + PHOSPHOR_GREEN + " | {name}:{function}:{line} - {message}"
+    logger.add(sys.stderr, format=fmt, colorize=False)
+except ImportError:
+    pass
 
 print(PHOSPHOR_GREEN, end="")
 B = ""
@@ -696,7 +705,7 @@ def main():
         print_banner()
         
         # Clean Prompt at Startup
-        cmd = get_user_input(f"{W}[?] Type {G}'start'{W} to begin audit or {C}'end'{W} to exit: {RESET}").strip().lower()
+        cmd = get_user_input(f"{W}[?] Type {TRUE_WHITE}'start'{W} to begin audit or {NEON_RED}'end'{W} to exit: ").strip().lower()
         
         if cmd == 'end':
             # This is actually handled by get_user_input, but kept for logic clarity
