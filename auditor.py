@@ -1,25 +1,22 @@
 import os
-import sys
-from google import genai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Get Gemini API key
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+raw_key = os.getenv("GROQ_API_KEY", "").strip().replace('"', '')
+client = OpenAI(api_key=raw_key, base_url="https://api.groq.com/openai/v1")
 
 def analyze_app_safety(permissions, description):
     """
     Analyzes whether Android permissions are justified given an app's description
     using Google's latest genai SDK. Returns a formatted security report.
     """
-    if not GEMINI_API_KEY:
-        return "Error: GEMINI_API_KEY not found in .env file or environment."
+    if not raw_key:
+        return "Error: GROQ_API_KEY not found in .env file or environment."
 
     try:
-        # Initialize the GenAI Client
-        client = genai.Client(api_key=GEMINI_API_KEY)
         
         # Prepare the structured prompt for a consistent report format
         prompt = f"""
@@ -44,16 +41,16 @@ def analyze_app_safety(permissions, description):
         [A brief explanation of whether the app seems safe, suspicious, or malicious based on the alignment (or lack thereof) between permissions and features.]
         """
 
-        # Generate response using gemini-2.0-flash
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
+        # Generate response using Groq (Llama-3)
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
         )
         
-        if response and response.text:
-            return response.text.strip()
+        if chat_completion.choices:
+            return chat_completion.choices[0].message.content.strip()
         else:
-            return "Error: Received an empty response from Gemini AI."
+            return "Error: Received an empty response from Groq AI."
             
     except Exception as e:
         return f"An unexpected error occurred during AI analysis: {str(e)}"
@@ -68,11 +65,20 @@ if __name__ == "__main__":
     
     test_description = "Explore and navigate the world with confidence using Google Maps. Find the best routes with live traffic data..."
 
-    print("Running Security Audit with Gemini 2.0 Flash...\n")
+    # TrueColor ANSI escape sequences
+    PHOSPHOR_GREEN = '\033[38;2;15;255;80m\033[1m'
+    NEON_RED = '\033[38;2;255;20;20m\033[1m'
+    
+    # Enable ANSI escape sequences on Windows
+    import os
+    if os.name == 'nt':
+        os.system('color')
+
+    print(f"{PHOSPHOR_GREEN}Synchronizing with Groq Llama-3...\n")
     analysis_report = analyze_app_safety(test_permissions, test_description)
     
-    print("="*60)
-    print("SECURITY ANALYSIS REPORT")
-    print("="*60)
-    print(analysis_report)
-    print("="*60)
+    print(f"{NEON_RED}="*60)
+    print(f"{NEON_RED}SECURITY ANALYSIS REPORT")
+    print(f"{NEON_RED}="*60)
+    print(f"{NEON_RED}{analysis_report}")
+    print(f"{NEON_RED}="*60)

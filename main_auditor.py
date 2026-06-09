@@ -1,26 +1,36 @@
 import warnings
 warnings.filterwarnings("ignore")
+import logging
+logging.disable(logging.WARNING)
 import os
 import sys
-import argparse
 import re
 import datetime
 import subprocess
 import socket
-import requests
-import json
 import time
 from colorama import Fore, Style, init
-init(autoreset=True)
-B = Style.BRIGHT
-C = Fore.CYAN + Style.BRIGHT
-G = Fore.GREEN + Style.BRIGHT
-R = Fore.RED + Style.BRIGHT
-Y = Fore.YELLOW + Style.BRIGHT
-M = Fore.MAGENTA + Style.BRIGHT
-W = Fore.WHITE + Style.BRIGHT
-D = Fore.BLACK + Style.BRIGHT # Dim Grey
-RESET = Style.RESET_ALL
+init()
+if os.name == 'nt':
+    os.system('color')
+
+PHOSPHOR_GREEN = '\033[38;2;15;255;80m\033[1m'
+NEON_RED = '\033[38;2;255;20;20m\033[1m'
+
+print(PHOSPHOR_GREEN, end="")
+B = ""
+C = PHOSPHOR_GREEN
+G = PHOSPHOR_GREEN
+R = PHOSPHOR_GREEN
+Y = PHOSPHOR_GREEN
+M = PHOSPHOR_GREEN
+P = PHOSPHOR_GREEN
+W = PHOSPHOR_GREEN
+D = PHOSPHOR_GREEN
+RESET = PHOSPHOR_GREEN
+REPORT_RED = NEON_RED
+REPORT_RED_DIM = NEON_RED
+Style.RESET_ALL = PHOSPHOR_GREEN
 
 def clear_screen():
     """Clears the terminal screen for a clean UX."""
@@ -30,7 +40,7 @@ def get_user_input(prompt_text):
     """Global input wrapper to handle the 'end' command anytime."""
     user_input = input(prompt_text).strip()
     if user_input.lower() == 'end':
-        print(f"\n{B}{R}[+] Secure Wipe Executed. Terminating Session...{RESET}")
+        print(f"\n{B}{G}[+] Secure Wipe Executed. Terminating Session...{Style.RESET_ALL}")
         time.sleep(1)
         sys.exit(0)
     return user_input
@@ -46,7 +56,7 @@ def generate_launch_wrapper():
         
         print(f"{G}[+] Global Command 'startscan' updated with Absolute Path.{W}")
     except Exception as e:
-        print(f"{R}[-] Failed to generate launch wrapper: {e}{W}")
+        print(f"{Y}[-] Failed to generate launch wrapper: {e}{W}")
 
 def print_banner():
     """Clears the screen and prints the professional Android Auditor banner."""
@@ -68,7 +78,7 @@ try:
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.enums import TA_CENTER
 except ImportError:
     print("[-] Error: ReportLab not found. Run 'pip install reportlab'")
     sys.exit(1)
@@ -79,14 +89,10 @@ from dotenv import load_dotenv
 
 # Initialize Environment
 load_dotenv()
-# =========================================================================
-# HARDCODE OPTION (Backup): If you get 401 Invalid API Key errors constantly:
-# 1. Uncomment the line below and paste your valid gsk_... key inside the quotes.
-# 2. Replace the line `GROQ_API_KEY = os.getenv("GROQ_API_KEY")` with `GROQ_API_KEY = GROQ_API_KEY_HARDCODED`
-# GROQ_API_KEY_HARDCODED = "gsk_your_key_here"
-# =========================================================================
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-print(f"DEBUG: API Key found: {str(os.environ.get('GROQ_API_KEY'))[:10]}...")
+
+raw_key = os.getenv("GROQ_API_KEY", "")
+clean_key = raw_key.strip().strip('"').strip("'")
+GROQ_API_KEY = clean_key
 
 # Force UTF-8 encoding for Windows terminals
 if sys.stdout.encoding != 'utf-8':
@@ -99,7 +105,7 @@ if sys.stdout.encoding != 'utf-8':
 # --- CONFIGURATION & HIGH-ACCURACY REGEX ---
 
 SECRET_REGEX = {
-    "Google API Key": r"AIza[0-9A-Za-z\-_]{35}",
+    "GCP API Key": r"AIza[0-9A-Za-z\-_]{35}",
     "Firebase URL": r"https?://[a-z0-9.-]+\.firebaseio\.com",
     "AWS Access Key": r"AKIA[0-9A-Z]{16}",
     "AWS S3 Bucket": r"[a-z0-9.-]+\.s3\.amazonaws\.com",
@@ -130,8 +136,8 @@ APP_CATEGORY_RULES = {
     }
 }
 
-def is_google_reachable():
-    """Simple check to see if Google is reachable (8.8.8.8) to verify connectivity."""
+def is_internet_reachable():
+    """Simple check to see if internet is reachable (8.8.8.8) to verify connectivity."""
     try:
         socket.setdefaulttimeout(3)
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
@@ -144,7 +150,7 @@ def run_adb(command):
     try:
         result = subprocess.run(["adb"] + command.split(), capture_output=True, text=True, check=True)
         return result.stdout.strip()
-    except Exception as e:
+    except Exception:
         return None
 
 def get_adb_packages():
@@ -161,9 +167,9 @@ def get_adb_packages():
                 device_found = True
         
         if not device_found:
-            print(f"\n{B}{R}[!] ERROR: NO DEVICE DETECTED.{W}")
-            print(f"{Y} [R] Retry | [B] Back to Menu{W}")
-            sub_choice = get_user_input(f"\n{Y}[?] Choice: {W}").strip().upper()
+            print(f"\n{B}{Y}[!] ERROR: NO DEVICE DETECTED.{W}")
+            print(f"{C} [R] Retry | [B] Back to Menu{W}")
+            sub_choice = get_user_input(f"\n{C}[?] Choice: {W}").strip().upper()
             if sub_choice == 'R':
                 continue
             return "BACK"
@@ -171,7 +177,7 @@ def get_adb_packages():
         print(f"{C}[*] Fetching 3rd-party packages...{W}")
         pkgs = run_adb("shell pm list packages -3")
         if not pkgs: 
-            print(f"{R}[-] No 3rd-party packages found.{W}")
+            print(f"{Y}[-] No 3rd-party packages found.{W}")
             return None
         
         list_pkgs = [p.replace("package:", "") for p in pkgs.split("\n") if p.strip()]
@@ -182,7 +188,7 @@ def pull_apk_from_adb(package_name):
     print(f"{C}[*] Locating remote path for {package_name}...{W}")
     path_info = run_adb(f"shell pm path {package_name}")
     if not path_info: 
-        print(f"{R}[-] Failed to locate APK on device.{W}")
+        print(f"{Y}[-] Failed to locate APK on device.{W}")
         return None
     
     apk_remote_path = path_info.split(":")[1].strip()
@@ -190,7 +196,7 @@ def pull_apk_from_adb(package_name):
     print(f"{C}[*] Pulling Binary: {local_filename}...{W}")
     
     # Use subprocess directly for better control
-    pull_res = subprocess.run(["adb", "pull", apk_remote_path, local_filename], capture_output=True)
+    subprocess.run(["adb", "pull", apk_remote_path, local_filename], capture_output=True)
     if os.path.exists(local_filename):
         print(f"{G}[+] APK Pulled Successfully.{W}")
         return local_filename
@@ -199,39 +205,36 @@ def pull_apk_from_adb(package_name):
 def diagnostic_connection_test():
     """Diagnostic check for Groq API status and Key validity."""
     if not GROQ_API_KEY:
-        print(f"\n{B}{R}[!] CRITICAL: Missing GROQ_API_KEY in .env file.{W}")
+        print(f"\n{B}{Y}[!] CRITICAL: Missing GROQ_API_KEY in .env file.{W}")
         return False
 
     print(f"{C}[*] Performing Diagnostic Connection Test...{W}")
     
-    if not is_google_reachable():
-        print(f"{R}[!] Diagnostic: 8.8.8.8 Unreachable. Check your network/proxy.{W}")
+    if not is_internet_reachable():
+        print(f"{Y}[!] Diagnostic: 8.8.8.8 Unreachable. Check your network/proxy.{W}")
         return "NETWORK_ERROR"
 
-    print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
+    print(f"{C}[*] Engaging Llama-3 AI Engine (Llama-3)... {W}", end="", flush=True)
     
     if not os.environ.get("GROQ_API_KEY") and not GROQ_API_KEY:
         print("\n[!] Error: System Environment Variable 'GROQ_API_KEY' not found!")
     
     try:
-        client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=GROQ_API_KEY
-        )
+        client = OpenAI(api_key=clean_key, base_url="https://api.groq.com/openai/v1")
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": "ping"}],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
         )
         if chat_completion.choices:
             print(f"{G}[Connected]{W}")
-            print(f"{G}[+] Diagnostic: Groq API is LIVE and Key is VALID.{W}")
+            print(f"{P}[+] AI Analysis: ONLINE (Llama-3 Engine Active){W}")
             return True
         
-        print(f"{R}[Failed]{W}")
+        print(f"{Y}[Failed]{W}")
         return "AI_OFFLINE"
     except Exception as e:
-        print(f"{R}[Error]{W}")
-        print(f"{R}[!] Diagnostic: Connection failed - {e}{W}")
+        print(f"{Y}[Error]{W}")
+        print(f"{Y}[!] Diagnostic: Connection failed - {e}{W}")
         return "AI_OFFLINE"
 
 # --- PDF LOGIC (REPORTLAB) ---
@@ -244,7 +247,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
     
     # Severity & Remediation Metadata for Secrets
     SECRETS_METADATA = {
-        "Google API Key": {"sev": "High", "rem": "Restrict API Key in GCP Console to specific IP/Package."},
+        "GCP API Key": {"sev": "High", "rem": "Restrict API Key in GCP Console to specific IP/Package."},
         "Firebase URL": {"sev": "Medium", "rem": "Check Firebase Security Rules & Database Permissions."},
         "AWS Access Key": {"sev": "High", "rem": "Revoke Key immediately and rotate via IAM."},
         "AWS S3 Bucket": {"sev": "Medium", "rem": "Ensure S3 bucket is private and ACLs are locked down."},
@@ -405,10 +408,10 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
             print(f"\n{G}[+] Professional PDF generated at: {abs_path}{W}")
             return abs_path
         except PermissionError:
-            print(f"\n{B}{R}[!] CRITICAL: Close the PDF file '{filename}' and press Enter to retry.{RESET}")
-            get_user_input(f"{Y}[?] Press Enter to continue...{RESET}")
+            print(f"\n{B}{Y}[!] CRITICAL: Close the PDF file '{filename}' and press Enter to retry.{RESET}")
+            get_user_input(f"{C}[?] Press Enter to continue...{RESET}")
         except Exception as e:
-            print(f"{R}[-] PDF Generation Failed: {e}{W}")
+            print(f"{Y}[-] PDF Generation Failed: {e}{W}")
             return None
 
 # --- CORE FUNCTIONS ---
@@ -431,7 +434,7 @@ def extract_manifest_risks(apk_obj):
                     exported_count += 1
                     
         return {"allowBackup": allow_backup, "debuggable": debuggable, "exported_count": exported_count}
-    except:
+    except Exception:
         return {"allowBackup": "unknown", "debuggable": "unknown", "exported_count": 0}
 
 def hunt_secrets(apk_obj):
@@ -446,7 +449,8 @@ def hunt_secrets(apk_obj):
                         if len(s) < 200: # Filter out binary noise
                             entry = {"type": name, "match": s.strip()}
                             if entry not in found: found.append(entry)
-    except: pass
+    except Exception:
+        pass
     return found
 
 def get_ai_audit(package, permissions, description, manifest_risks, secrets, app_title):
@@ -454,16 +458,16 @@ def get_ai_audit(package, permissions, description, manifest_risks, secrets, app
     if not GROQ_API_KEY:
         return "ERROR: Missing GROQ_API_KEY in .env"
 
-    if not is_google_reachable():
+    if not is_internet_reachable():
         return "AI_ERROR: No Internet Connection."
 
-    print(f"{C}[*] Synchronizing with Groq (Llama-3)... {W}", end="", flush=True)
+    print(f"{C}[*] Engaging Llama-3 AI Engine (Llama-3)... {W}", end="", flush=True)
     
     if not os.environ.get("GROQ_API_KEY") and not GROQ_API_KEY:
         print("\n[!] Error: System Environment Variable 'GROQ_API_KEY' not found!")
 
     prompt = f"""
-    ROLE: Senior Mobile Security Auditor.
+    ROLE: Senior Android Security Auditor.
     TASK: Perform a professional VAPT analysis of the following Android APK data.
     
     APP DATA:
@@ -495,31 +499,27 @@ def get_ai_audit(package, permissions, description, manifest_risks, secrets, app
     """
 
     try:
-        client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=GROQ_API_KEY
-        )
+        client = OpenAI(api_key=clean_key, base_url="https://api.groq.com/openai/v1")
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
         )
         
         if chat_completion.choices:
             print(f"{G}[Connected]{W}")
             return chat_completion.choices[0].message.content.strip()
         
-        print(f"{R}[Failed]{W}")
-        return f"AI_ERROR: Received empty response from AI."
+        print(f"{Y}[Failed]{W}")
+        return "AI_ERROR: Received empty response from AI."
             
     except Exception as e:
-        print(f"{R}[Offline]{W}")
-        print(f"{R}[!] Error details: {e}{W}")
+        print(f"{Y}[Offline]{W}")
+        print(f"{Y}[!] Error details: {e}{W}")
         return f"AI_ERROR: {e}"
 
 def get_mock_audit(package, permissions, manifest_risks, secrets, app_title):
     """Provides a static security report using 'Air-Gapped Internal Logic Engine'."""
     risk_score = 4
-    findings = []
     
     # Identify App Category
     detected_category = "General"
@@ -549,10 +549,10 @@ def get_mock_audit(package, permissions, manifest_risks, secrets, app_title):
         rows.append(f"Permissions | {app_title} categorized as {detected_category}. Permissions seem standard for this type. | Info | No immediate action.")
         
     if manifest_risks['allowBackup'] == "true":
-        rows.append(f"Manifest: allowBackup | Set to true. Potential data leak via adb backup. | M2: Insecure Data Storage | Set allowBackup=\"false\" in Manifest.")
+        rows.append("Manifest: allowBackup | Set to true. Potential data leak via adb backup. | M2: Insecure Data Storage | Set allowBackup=\"false\" in Manifest.")
     
     if manifest_risks['debuggable'] == "true":
-        rows.append(f"Manifest: debuggable | Debugging is enabled. Vulnerable to reverse engineering. | M1: Improper Platform Usage | Set debuggable=\"false\" for production.")
+        rows.append("Manifest: debuggable | Debugging is enabled. Vulnerable to reverse engineering. | M1: Improper Platform Usage | Set debuggable=\"false\" for production.")
 
     # Secrets mapping to M2
     for s in secrets[:5]:
@@ -594,7 +594,7 @@ def perform_scan(apk_path, mode='3'):
     print_banner()
     
     if not os.path.exists(apk_path):
-        print(f"{R}[!] CRITICAL: {apk_path} not found.{W}")
+        print(f"{Y}[!] CRITICAL: {apk_path} not found.{W}")
         return None, None
 
     print(f"{C}[*] Phase 1: Global Binary Analysis...{W}", end="\r")
@@ -604,7 +604,7 @@ def perform_scan(apk_path, mode='3'):
         time.sleep(0.5)
         print(f"{G}[+] Phase 1: Binary Loaded ({os.path.basename(apk_path)}){W}")
     except Exception as e:
-        print(f"{R}[!] Phase 1: Error parsing APK - {e}{W}")
+        print(f"{Y}[!] Phase 1: Error parsing APK - {e}{W}")
         return None, None
     
     # Extraction Phase
@@ -614,20 +614,23 @@ def perform_scan(apk_path, mode='3'):
     
     secrets = []
     if mode in ['2', '3']:
-        print(f"{C}[*] Phase 3: Deep Dex Secret Scanning...{W}", end="\r")
+        print(f"{P}[*] Phase 3: Deep Dex Secret Scanning...{W}", end="\r")
         secrets = hunt_secrets(a)
-        print(f"{G}[+] Phase 3: Deep Scan Complete ({len(secrets)} Secrets Found){W}")
+        sec_color = R if len(secrets) > 0 else G
+        print(f"{P}[+] Phase 3: Deep Scan Complete ({sec_color}{len(secrets)} Secrets Found{P}){W}")
     else:
-        print(f"{Y}[-] Phase 3: Secret Scanning Skipped (Surface Mode){W}")
+        print(f"{C}[-] Phase 3: Secret Scanning Skipped (Surface Mode){W}")
     
-    print(f"{C}[*] Gathering Forensic App Context...{W}", end="\r")
+    print(f"{C}[*] External Metadata Retrieval...{W}", end="\r")
     try:
         app_data = app(pkg, lang='en', country='us')
-        title, desc = app_data.get('title', 'Unknown'), app_data.get('description', 'N/A')
-        print(f"{G}[+] Forensic Context: {title} Verified              {W}")
+        title, desc = app_data.get('title', pkg), app_data.get('description', 'N/A')
+        print(f"{G}[+] External Metadata Retrieval: {title} Verified              {W}")
     except Exception:
-        title, desc = "Unknown", "Offline analysis: No description available."
-        print(f"{Y}[!] Forensic Context: Google Play Offline / Limited Info{W}")
+        title = pkg
+        perms = a.get_permissions() if hasattr(a, 'get_permissions') else []
+        desc = f"Local Analysis. Package: {pkg}, Permissions: {', '.join(perms)}"
+        print(f"{C}[*] External Intelligence: Local Analysis Mode (Metadata Restricted){W}")
 
     # Audit Phase
     ai_report = ""
@@ -637,12 +640,12 @@ def perform_scan(apk_path, mode='3'):
         ai_report = get_ai_audit(pkg, a.get_permissions(), desc, m_risks, secrets, title)
         
         if "AI_ERROR" in ai_report or "ERROR" in ai_report.upper():
-            print(f"\n{R}[!] Exact AI Error: {ai_report}{W}")
-            print(f"{Y}[!] AI Restricted: Switching to [!] Air-Gapped Heuristic Mode{W}")
+            print(f"\n{Y}[!] Exact AI Error: {ai_report}{W}")
+            print(f"{C}[!] AI Restricted: Switching to Air-Gapped Heuristic Mode{W}")
             ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
             is_mock = True
         else:
-            print(f"{C}[+] AI Analysis: ACTIVE (Groq/Llama-3 Engine)                       {W}")
+            print(f"{P}[+] AI Analysis: ONLINE (Llama-3 Engine Active){W}")
     else:
         print(f"{C}[*] Phase 4: Local Heuristic Reasoning...{W}", end="\r")
         ai_report = get_mock_audit(pkg, a.get_permissions(), m_risks, secrets, title)
@@ -652,23 +655,30 @@ def perform_scan(apk_path, mode='3'):
     summary = parse_summary(ai_report)
     mode_label = "AI-POWERED VAPT" if not is_mock else "LOCAL HEURISTIC"
     
-    print("\n" + f"{B}{M}" + "="*25 + f" {RESET}{B}{C}[ {mode_label} REPORT ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
-    print(f"{C}[*] Package:   {W}{pkg}{RESET}")
-    print(f"{G}[+] Risk Score: {summary['score']}/10{RESET}")
-    print(f"{G}[+] Verdict:    {summary['verdict']}{RESET}")
-    print(f"{C}[*] Findings:   {Y}{summary['findings']}{RESET}")
+    print("\n" + f"{REPORT_RED}" + "="*25 + f" [ {mode_label} REPORT ] " + "="*25 + f"{RESET}")
+    print(f"{REPORT_RED}[*] Package:   {pkg}{RESET}")
+    
+    score_val = 0
+    if isinstance(summary['score'], str) and summary['score'].isdigit():
+        score_val = int(summary['score'])
+    elif isinstance(summary['score'], int):
+        score_val = summary['score']
+    
+    print(f"{REPORT_RED}[+] Risk Score: {summary['score']}/10{RESET}")
+    print(f"{REPORT_RED}[+] Verdict:    {summary['verdict']}{RESET}")
+    print(f"{REPORT_RED}[*] Findings:   {summary['findings']}{RESET}")
     if mode in ['2', '3']:
-        print(f"{C}[*] Forensic Scan: {G}{len(secrets)} hardcoded entities found.{RESET}")
-    print(f"{B}{D}" + "-" * 75 + f"{RESET}")
+        print(f"{REPORT_RED}[*] Forensic Scan: {len(secrets)} hardcoded entities found.{RESET}")
+    print(f"{REPORT_RED_DIM}" + "-" * 75 + f"{RESET}")
 
-    choice = get_user_input(f"\n{Y}[?] Generate Detailed PDF Report? (y/n): {RESET}").lower()
+    choice = get_user_input(f"\n{C}[?] Generate Detailed PDF Report? (y/n): {RESET}").lower()
     pdf_file = None
     if choice == 'y':
         print(f"\n{W}[?] Select Report Scope:{RESET}")
         print(f" [{C}1{RESET}] ⚡ Executive Summary (High-Risk/Short)")
         print(f" [{C}2{RESET}] 🛡️ Full Forensic Trail (All {len(secrets)} Findings)")
         
-        scope_choice = get_user_input(f"\n{Y}[?] Scope > {RESET}").strip()
+        scope_choice = get_user_input(f"\n{C}[?] Scope > {RESET}").strip()
         pdf_type = "summary" if scope_choice == '1' else "full"
         
         print(f"{C}[*] Finalizing PDF Forensics ({pdf_type.upper()})...{RESET}")
@@ -679,22 +689,22 @@ def perform_scan(apk_path, mode='3'):
 
 def main():
     generate_launch_wrapper()
-    print(f"{Y}[!] PRO-TIP: Add this folder ({os.getcwd()}) to your 'System Environment Variables (PATH)'.{W}")
-    print(f"{Y}    Then you can just type 'startscan' from ANY terminal!{W}\n")
+    print(f"{C}[*] PRO-TIP: Add this folder ({os.getcwd()}) to your 'System Environment Variables (PATH)'.{W}")
+    print(f"{C}    Then you can just type 'startscan' from ANY terminal!{W}\n")
     
     while True:
         print_banner()
         
         # Clean Prompt at Startup
-        cmd = get_user_input(f"{W}[?] Type {G}'start'{W} to begin audit or {R}'end'{W} to exit: {RESET}").strip().lower()
+        cmd = get_user_input(f"{W}[?] Type {G}'start'{W} to begin audit or {C}'end'{W} to exit: {RESET}").strip().lower()
         
         if cmd == 'end':
             # This is actually handled by get_user_input, but kept for logic clarity
-            print(f"\n{B}{R}[+] Terminating Session...{RESET}")
+            print(f"\n{B}{C}[+] Terminating Session...{Style.RESET_ALL}")
             sys.exit(0)
         
         if cmd != 'start':
-            print(f"{R}[!] Invalid Command. Please type 'start' or 'end'.{RESET}")
+            print(f"{Y}[!] Invalid Command. Please type 'start' or 'end'.{RESET}")
             time.sleep(1)
             continue
 
@@ -708,9 +718,9 @@ def main():
             print(f"{W}[?] Select APK Source:{RESET}")
             print(f" [{C}1{RESET}] Manual APK Path (Local)")
             print(f" [{C}2{RESET}] Select App from Phone (ADB)")
-            print(f" [{Y}B{RESET}] Back to Main Menu")
+            print(f" [{C}B{RESET}] Back to Main Menu")
             
-            src_choice = get_user_input(f"\n{Y}[?] Source > {RESET}").strip().upper()
+            src_choice = get_user_input(f"\n{C}[?] Source > {RESET}").strip().upper()
             
             if src_choice == 'B':
                 break
@@ -721,28 +731,28 @@ def main():
                 if not pkgs: continue
                 
                 print_banner()
-                print(f"{B}{D}" + "-"*20 + f" {RESET}{B}{M}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
+                print(f"{B}{D}" + "-"*20 + f" {RESET}{B}{C}[ USER INSTALLED APPS ]{RESET} " + f"{B}{D}" + "-"*20 + f"{RESET}")
                 for i, p in enumerate(pkgs[:40]):
                     print(f" [{C}{i+1:2d}{RESET}] {W}{p}{RESET}")
                 print(f"{B}{D}" + "-" * 63 + f"{RESET}")
                 
-                pkg_idx = get_user_input(f"\n{Y}[?] Select package number (or '0' to back): {RESET}").strip()
+                pkg_idx = get_user_input(f"\n{C}[?] Select package number (or '0' to back): {RESET}").strip()
                 if pkg_idx == '0': continue
                 try:
                     selected_pkg = pkgs[int(pkg_idx)-1]
                     current_apk = pull_apk_from_adb(selected_pkg)
                     if not current_apk: continue
-                except:
-                    print(f"{R}[!] Invalid Selection.{RESET}")
+                except Exception:
+                    print(f"{Y}[!] Invalid Selection.{RESET}")
                     time.sleep(1)
                     continue
             else:
-                path_input = get_user_input(f"\n{Y}[?] Enter path to APK (or 'B' to go back): {RESET}").strip().strip('"')
+                path_input = get_user_input(f"\n{C}[?] Enter path to APK (or 'B' to go back): {RESET}").strip().strip('"')
                 if path_input.upper() == 'B': continue
                 if os.path.exists(path_input):
                     current_apk = os.path.abspath(path_input)
                 else:
-                    print(f"{R}[!] File not found.{RESET}")
+                    print(f"{Y}[!] File not found.{RESET}")
                     time.sleep(1)
                     continue
             
@@ -752,9 +762,9 @@ def main():
                 print(f"{W}[?] Select Analysis Depth:{RESET}")
                 print(f" [{C}1{RESET}] Surface Audit (Manifest)")
                 print(f" [{C}2{RESET}] Deep Static Audit (Manifest + Secrets)")
-                print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Gemini v1)")
+                print(f" [{C}3{RESET}] AI Contextual Audit (Full Logic via Llama-3 Engine)")
                 
-                mode = get_user_input(f"\n{Y}[?] Analysis Mode > {RESET}").strip()
+                mode = get_user_input(f"\n{C}[?] Analysis Mode > {RESET}").strip()
                 if mode not in ['1', '2', '3']: mode = '3'
 
                 # Diagnostic Test only for AI mode
@@ -770,13 +780,13 @@ def main():
 
                 # Master Control Menu (Loop until New Scan or Exit)
                 while True:
-                    print(f"\n{B}{M}" + "="*25 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{M}" + "="*25 + f"{RESET}")
+                    print(f"\n{B}{C}" + "="*25 + f" {RESET}{B}{W}[ MASTER CONTROL MENU ]{RESET} " + f"{B}{C}" + "="*25 + f"{RESET}")
                     print(f" [{G}1{RESET}] {W}Open PDF Report{RESET}")
                     print(f" [{C}2{RESET}] {W}Reset (Different App in this session){RESET}")
-                    print(f" [{Y}3{RESET}] {W}Delete Report & Return to Start{RESET}")
-                    print(f" [{R}4{RESET}] {W}Exit Auditor{RESET}")
+                    print(f" [{C}3{RESET}] {W}Delete Report & Return to Start{RESET}")
+                    print(f" [{C}4{RESET}] {W}Exit Auditor{RESET}")
                     
-                    choice = get_user_input(f"\n{Y}[?] Option > {RESET}").strip()
+                    choice = get_user_input(f"\n{C}[?] Option > {RESET}").strip()
                     
                     if choice == '1':
                         if current_pdf_report and os.path.exists(current_pdf_report):
@@ -787,7 +797,7 @@ def main():
                                 opener = "open" if sys.platform == "darwin" else "xdg-open"
                                 subprocess.run([opener, current_pdf_report])
                         else: 
-                            print(f"{R}[!] No report available to open at: {current_pdf_report}{RESET}")
+                            print(f"{Y}[!] No report available to open at: {current_pdf_report}{RESET}")
                     
                     elif choice == '2':
                         current_apk = None 
@@ -800,7 +810,7 @@ def main():
                                 print(f"\n{G}[+] Secure Wipe Complete.{RESET}")
                                 current_pdf_report = None
                             except PermissionError:
-                                print(f"\n{R}[!] ERROR: Permission Denied. Close the PDF report before deleting!{RESET}")
+                                print(f"\n{Y}[!] ERROR: Permission Denied. Close the PDF report before deleting!{RESET}")
                                 continue
                         else:
                             print(f"\n{Y}[-] No report found to delete.{RESET}")
@@ -808,10 +818,10 @@ def main():
                         break # Break from master menu to go back to Acquisition logic
                     
                     elif choice == '4':
-                        print(f"\n{B}{R}[+] Terminating Session...{RESET}")
+                        print(f"\n{B}{C}[+] Terminating Session...{Style.RESET_ALL}")
                         sys.exit(0)
                     else:
-                        print(f"{R}[!] Invalid Option.{RESET}")
+                        print(f"{Y}[!] Invalid Option.{RESET}")
                 
                 # After breaking from master control menu, we go back to the top of acquisition loop
                 # If current_apk is None, it will prompt for source again.
