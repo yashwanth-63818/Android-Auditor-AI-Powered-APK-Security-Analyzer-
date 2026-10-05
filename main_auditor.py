@@ -273,7 +273,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor("#1B2631"), alignment=TA_CENTER, spaceAfter=12)
     sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=11, textColor=colors.grey, alignment=TA_CENTER, spaceAfter=24)
     section_style = ParagraphStyle('SectionStyle', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor("#1B2631"), spaceBefore=20, spaceAfter=12)
-    normal_style = styles['Normal']
+    normal_style = ParagraphStyle('NormalWrap', parent=styles['Normal'], wordWrap='CJK')
     
     # Header Section
     elements.append(Paragraph("ANDROID AUDITOR: SECURITY REPORT", title_style))
@@ -299,7 +299,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
     
     # Define table header and cell styles with wrapping support
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=10, textColor=colors.white, fontName='Helvetica-Bold')
-    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=9, leading=11)
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=9, leading=11, wordWrap='CJK')
     
     data = [[
         Paragraph("<b>Component / Vulnerability</b>", header_style),
@@ -349,7 +349,7 @@ def generate_pdf(pkg_name, app_title, ai_response, secrets=[], pdf_type="full"):
         elements.append(Paragraph(f"3. Hardcoded Secrets Found {title_suffix}", section_style))
         
         sec_header_style = ParagraphStyle('SecHeader', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName='Helvetica-Bold')
-        sec_cell_style = ParagraphStyle('SecCell', parent=styles['Normal'], fontSize=8, leading=10)
+        sec_cell_style = ParagraphStyle('SecCell', parent=styles['Normal'], fontSize=8, leading=10, wordWrap='CJK')
         
         # New Column structure: Type, Evidence, Severity, Remediation
         sec_data = [[
