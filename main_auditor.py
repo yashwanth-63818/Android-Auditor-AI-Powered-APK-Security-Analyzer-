@@ -9,7 +9,7 @@ import datetime
 import subprocess
 import socket
 import time
-from colorama import Fore, Style, init
+from colorama import Style, init
 init()
 if os.name == 'nt':
     os.system('color')
@@ -106,10 +106,10 @@ GROQ_API_KEY = clean_key
 # Force UTF-8 encoding for Windows terminals
 if sys.stdout.encoding != 'utf-8':
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8')  # type: ignore
     except AttributeError:
         import codecs
-        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())  # type: ignore
 
 # --- CONFIGURATION & HIGH-ACCURACY REGEX ---
 
@@ -197,19 +197,46 @@ def pull_apk_from_adb(package_name):
     print(f"{C}[*] Locating remote path for {package_name}...{W}")
     path_info = run_adb(f"shell pm path {package_name}")
     if not path_info: 
-        print(f"{Y}[-] Failed to locate APK on device.{W}")
+        print(f"\n{B}{Y}[!] ERROR: Failed to locate APK path on device.{W}")
+        get_user_input(f"{C}[*] Press Enter to return to menu...{W}")
         return None
     
-    apk_remote_path = path_info.split(":")[1].strip()
+    # Handle multiple paths (Split APKs)
+    path_lines = [line.strip() for line in path_info.splitlines() if line.strip()]
+    target_path = None
+    for line in path_lines:
+        if "base.apk" in line.lower():
+            target_path = line
+            break
+    if not target_path and path_lines:
+        target_path = path_lines[0]
+        
+    if not target_path:
+        print(f"\n{B}{Y}[!] ERROR: Failed to parse APK path from device output.{W}")
+        get_user_input(f"{C}[*] Press Enter to return to menu...{W}")
+        return None
+
+    # Strip the 'package:' prefix cleanly
+    if target_path.startswith("package:"):
+        apk_remote_path = target_path.replace("package:", "", 1).strip()
+    else:
+        apk_remote_path = target_path.strip()
+
     local_filename = f"{package_name}.apk"
     print(f"{C}[*] Pulling Binary: {local_filename}...{W}")
     
     # Use subprocess directly for better control
     subprocess.run(["adb", "pull", apk_remote_path, local_filename], capture_output=True)
+    
+    # Verify extraction success
     if os.path.exists(local_filename):
         print(f"{G}[+] APK Pulled Successfully.{W}")
+        time.sleep(1)
         return local_filename
-    return None
+    else:
+        print(f"\n{B}{Y}[!] ERROR: Extraction failed. Could not pull '{apk_remote_path}'.{W}")
+        get_user_input(f"{C}[*] Press Enter to return to menu...{W}")
+        return None
 
 def diagnostic_connection_test():
     """Diagnostic check for Groq API status and Key validity."""
@@ -232,7 +259,7 @@ def diagnostic_connection_test():
         client = OpenAI(api_key=clean_key, base_url="https://api.groq.com/openai/v1")
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": "ping"}],
-            model="llama-3.1-8b-instant",
+            model="llama3-8b-8192",
         )
         if chat_completion.choices:
             print(f"{G}[Connected]{W}")
@@ -511,12 +538,13 @@ def get_ai_audit(package, permissions, description, manifest_risks, secrets, app
         client = OpenAI(api_key=clean_key, base_url="https://api.groq.com/openai/v1")
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
+            model="llama3-8b-8192",
         )
         
         if chat_completion.choices:
             print(f"{G}[Connected]{W}")
-            return chat_completion.choices[0].message.content.strip()
+            content = chat_completion.choices[0].message.content
+            return content.strip() if content else ""
         
         print(f"{Y}[Failed]{W}")
         return "AI_ERROR: Received empty response from AI."
@@ -667,11 +695,7 @@ def perform_scan(apk_path, mode='3'):
     print("\n" + f"{REPORT_RED}" + "="*25 + f" [ {mode_label} REPORT ] " + "="*25 + f"{RESET}")
     print(f"{REPORT_RED}[*] Package:   {pkg}{RESET}")
     
-    score_val = 0
-    if isinstance(summary['score'], str) and summary['score'].isdigit():
-        score_val = int(summary['score'])
-    elif isinstance(summary['score'], int):
-        score_val = summary['score']
+
     
     print(f"{REPORT_RED}[+] Risk Score: {summary['score']}/10{RESET}")
     print(f"{REPORT_RED}[+] Verdict:    {summary['verdict']}{RESET}")

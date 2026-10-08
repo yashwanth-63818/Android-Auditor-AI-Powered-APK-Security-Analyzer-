@@ -44,11 +44,12 @@ def analyze_app_safety(permissions, description):
         # Generate response using Groq (Llama-3)
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
+            model="llama3-8b-8192",
         )
         
         if chat_completion.choices:
-            return chat_completion.choices[0].message.content.strip()
+            content = chat_completion.choices[0].message.content
+            return content.strip() if content else ""
         else:
             return "Error: Received an empty response from Groq AI."
             
