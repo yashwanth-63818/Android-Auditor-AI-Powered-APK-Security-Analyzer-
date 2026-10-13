@@ -1,0 +1,7 @@
+androguard>=3.4.0
+reportlab>=4.0.0
+openai>=1.0.0
+google-play-scraper>=1.2.0
+python-dotenv>=1.0.0
+colorama>=0.4.6
+loguru>=0.7.0
